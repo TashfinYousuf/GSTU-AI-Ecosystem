@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+python-multipart
+pypdf
+langchain-google-genai
+langchain-groq
+langchain-openai
+langchain-community
+langchain-chroma
+chromadb
+fastembed
+groq
+tavily-python

@@ -1,0 +1,17 @@
+# Python & Environment
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Database & Vector Store
+chroma_db/
+users_db.json
+current_session.json
+
+# Flutter & Mac OS
+.DS_Store
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies

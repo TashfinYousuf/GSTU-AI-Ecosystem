@@ -1,0 +1,381 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+/* 🔴 1. Global Modern Font */
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* 🔴 2. Login Aesthetic Wrapper (Dark Glow) */
+.login-wrapper {
+    background: radial-gradient(circle at top, rgba(16, 163, 127, 0.1), transparent 70%);
+    padding: 30px;
+    border-radius: 20px;
+}
+
+/* 🔴 3. Modern Typography */
+.modern-title { text-align: center; font-weight: 800; font-size: 28px; letter-spacing: -0.5px; margin-bottom: 5px;}
+.modern-subtitle { text-align: center; opacity: 0.6; font-size: 14px; margin-bottom: 25px; }
+
+/* 🔴 4. Perfect Logo Fix (No Cropping) */
+.modern-logo {
+    width: 85px; height: 85px; border-radius: 20px; 
+    object-fit: scale-down; background-color: rgba(255,255,255,0.9); 
+    padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); margin-bottom: 15px;
+}
+
+/* 🔴 5. KILL THE RED BORDER & HIDE STREAMLIT JUNK */
+div[data-testid="stFormSubmitInstructions"] { display: none !important; }
+div[data-baseweb="input"], div[data-baseweb="select"] {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important; /* Ash border */
+    background-color: rgba(255, 255, 255, 0.03) !important;
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+}
+
+/* 🔴 6. Fixed Account Dashboard Pill (Top Right) */
+div[data-testid="stPopover"] > button {
+    border-radius: 50px !important; /* Fully rounded pill */
+    padding: 5px 20px !important;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01)) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* ===================================================
+   ১. GLOBAL FONTS & SAFE TYPOGRAPHY
+=================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600&display=swap');
+
+p, h1, h2, h3, li, div[data-testid="stChatInput"] textarea {
+    font-family: 'Inter', sans-serif !important;
+}
+
+html, p [class*="st-"], .stMarkdown {
+    font-family: 'Hind Siliguri', sans-serif !important;
+}
+
+/* ===================================================
+   ২. THE SAFE ARROW & TITLE (Guaranteed to work)
+=================================================== */
+header[data-testid="stHeader"] { 
+    background-color: transparent !important; 
+    box-shadow: none !important;
+}
+
+div[data-testid="collapsedControl"] {
+    display: flex !important;
+    align-items: center !important;
+    width: 320px !important;
+    z-index: 999999 !important;
+}
+
+div[data-testid="collapsedControl"]::after {
+    content: "GSTU IR Assistant" !important;
+    font-size: 21px !important;
+    font-weight: 800 !important;
+    color: var(--text-color) !important;
+    margin-left: 12px !important;
+    white-space: nowrap !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    pointer-events: none !important;
+}
+
+/* Lock Sidebar completely to prevent UI breaking */
+[data-testid="stSidebarResizer"] { display: none !important; visibility: hidden !important; width: 0px !important; }
+
+@media (min-width: 641px) {
+    section[data-testid="stSidebar"] { min-width: 320px !important; max-width: 320px !important; }
+}
+
+/* ===================================================
+   ৩. GEMINI STYLE SIDEBAR BUTTONS
+=================================================== */
+[data-testid="stSidebar"] .stButton > button {
+    border: 1px solid transparent !important;
+    border-radius: 8px !important;
+    background-color: transparent !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    padding-left: 10px !important;
+    box-shadow: none !important;
+    transition: all 0.3s ease !important;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: rgba(150, 150, 150, 0.1) !important;
+    border: 1px solid rgba(200, 200, 200, 0.2) !important;
+    transform: translateX(4px) !important;
+}
+
+/* ===================================================
+   ৪. CHATGPT FLUID DYNAMIC UX (তোর অরিজিনাল ম্যাজিক)
+=================================================== */
+
+.block-container { 
+    max-width: 850px !important; 
+    padding-top: 4.5rem !important; 
+    padding-bottom: 6rem !important;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important; 
+}
+
+div[data-testid="stChatMessage"] {
+    width: 100% !important;
+}
+
+div[data-testid="stChatInput"] { 
+    background-color: var(--secondary-background-color) !important; 
+    border-radius: 24px !important; 
+    border: 1px solid rgba(128,128,128,0.4) !important; 
+    max-width: 850px !important; 
+    width: 100% !important;
+    margin: 0 auto !important; 
+    overflow: hidden !important; 
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+div[data-testid="stChatInput"]:focus-within { 
+    border: 1px solid #10a37f !important; 
+    box-shadow: 0 0 4px rgba(16, 163, 127, 0.4) !important; 
+}
+
+div[data-testid="stChatInput"] > div, div[data-testid="stChatInput"] textarea { 
+    border: none !important; 
+    box-shadow: none !important; 
+    outline: none !important; 
+}
+
+/* ===================================================
+   ৫. CLEAN UI BUBBLES & MODALS
+=================================================== */
+[data-testid="InputInstructions"], small { display: none !important; opacity: 0 !important; visibility: hidden !important; }
+
+div[data-testid="stSidebar"] button[kind="secondary"] { 
+    height: 42px !important; 
+    min-height: 42px !important; 
+    border-radius: 8px !important; 
+    display: flex !important; 
+    align-items: center !important; 
+    justify-content: center !important; 
+    font-weight: 600 !important; 
+}
+
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"] { 
+    border: 1px solid rgba(128,128,128,0.3) !important; 
+    border-radius: 8px !important; 
+    background-color: var(--secondary-background-color) !important; 
+    box-shadow: none !important; 
+}
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within { border: 1px solid #10a37f !important; }
+
+div[data-testid="stChatMessage"]:has(div:contains("🧑‍💻")) { 
+    background-color: var(--secondary-background-color); 
+    border-radius: 18px 18px 0 18px; 
+    flex-direction: row-reverse; 
+    border: 1px solid rgba(128,128,128,0.2); 
+}
+div[data-testid="stChatMessage"]:has(div:contains("✨")) { background-color: transparent; }
+
+div[data-testid="stChatMessage"] button { 
+    background: transparent !important; border: none !important; box-shadow: none !important; color: var(--text-color) !important; 
+    opacity: 0.6; width: 35px !important; height: 35px !important; padding: 0 !important; display: flex !important; 
+    align-items: center !important; justify-content: center !important; border-radius: 50% !important; transition: transform 0.2s ease, opacity 0.2s ease !important; 
+}
+div[data-testid="stChatMessage"] button:hover { background-color: var(--secondary-background-color) !important; opacity: 1 !important; transform: scale(1.1) !important; }
+
+.sidebar-section-title { font-size: 14.5px !important; font-weight: 800; color: #888; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 30px; margin-bottom: 12px; padding-left: 5px; }
+.recent-chat-btn { padding: 8px 10px; border-radius: 8px; background-color: transparent; margin-bottom: 2px; font-size: 14px; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background-color 0.2s; cursor: pointer; }
+.recent-chat-btn:hover { background-color: rgba(128,128,128,0.1); }
+.recent-chat-active { background-color: rgba(16, 163, 127, 0.15) !important; font-weight: 600; color: #10a37f !important; border-left: 3px solid #10a37f; }
+
+/* ===================================================
+   ৬. MOBILE RESPONSIVENESS & DIALOG MODALS
+=================================================== */
+.mobile-floating-btn { display: none; }
+@media (max-width: 640px) {
+    .mobile-floating-btn {
+        display: flex !important; position: fixed !important; bottom: 90px !important; right: 20px !important;
+        width: 45px !important; height: 45px !important; background-color: #212121 !important; color: white !important;
+        border-radius: 50% !important; align-items: center !important; justify-content: center !important;
+        font-size: 20px !important; text-decoration: none !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important; z-index: 99999 !important;
+    }
+    section[data-testid="stSidebar"] { width: 100vw !important; max-width: 100vw !important; }
+    iframe { width: 40px !important; height: 40px !important; }
+    div[data-testid="stChatMessage"] button { width: 34px !important; height: 34px !important; font-size: 14px !important; border-radius: 10px !important; }
+}
+
+/* 🔴 DIALOG/MODAL RED BORDER KILLER */
+div[role="dialog"] { border-radius: 16px !important; border: 1px solid rgba(16, 163, 127, 0.3) !important; outline: none !important; }
+div[role="dialog"]:focus-within { border: 1px solid #10a37f !important; box-shadow: 0 0 10px rgba(16, 163, 127, 0.2) !important; }
+div[role="dialog"] * { border-color: rgba(128,128,128,0.3) !important; }
+div[role="dialog"] *:focus { border-color: #10a37f !important; }
+
+/* Hide annoying anchor links next to headers */
+/* 🔴 Kill the annoying header link icon perfectly */
+.stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a, .stMarkdown a svg {
+    display: none !important;
+    pointer-events: none !important;
+}
+
+
+/* Modern Profile Popover Button */
+div[data-testid="stPopover"] > button {
+    border-radius: 20px !important;
+    border: 1px solid rgba(128,128,128,0.3) !important;
+    transition: all 0.3s ease !important;
+}
+div[data-testid="stPopover"] > button:hover {
+    border-color: #10a37f !important;
+}
+
+/* 🔴 Smooth Fade-In Animation for Login Screen */
+@keyframes fadeInSlide {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.login-container {
+    animation: fadeInSlide 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* 🔴 AGGRESSIVE FORM STYLING (Kill Red Border Completely) */
+div[data-baseweb="input"], div[data-baseweb="select"] {
+    border: 1px solid #444 !important;
+    background-color: #1e1e1e !important;
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+}
+div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within {
+    border-color: #10a37f !important;
+    box-shadow: 0 0 0 1px #10a37f !important; /* Force green shadow, no red */
+}
+
+/* Hide the disgusting 'Press Enter to submit' text */
+div[data-testid="InputInstructions"] { display: none !important; }
+
+/* 🔴 PERFECT ROUND/PILL ACCOUNT BUTTON (Like Google/ChatGPT) */
+div[data-testid="stPopover"] > button {
+    border-radius: 50px !important;
+    padding: 0px 15px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    background: transparent !important;
+    color: white !important;
+    transition: 0.3s ease !important;
+}
+div[data-testid="stPopover"] > button p {
+    font-weight: 600 !important;
+    margin: 0 !important;
+    font-size: 15px !important;
+}
+div[data-testid="stPopover"] > button:hover {
+    border-color: #10a37f !important;
+    background: rgba(16, 163, 127, 0.1) !important;
+}
+/* Centered & Clean Tabs for Login */
+div[data-baseweb="tab-list"] {
+    justify-content: center !important;
+    margin-bottom: 20px !important;
+    gap: 15px !important;
+}
+
+/* 🔴 2. Modern Form Styling (Ash Border, Green Focus, No Red) */
+div[data-testid="stForm"] {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important; /* Ash/Subtle Border */
+    border-radius: 12px !important;
+    background-color: rgba(255, 255, 255, 0.02) !important;
+}
+div[data-testid="stForm"]:focus-within {
+    border-color: #10a37f !important; /* Premium Green Focus */
+    box-shadow: 0 0 0 1px #10a37f !important;
+}
+
+/* 🔴 3. Modern Stylish Separated Tabs (Like Vercel/Notion) */
+div[data-baseweb="tab-list"] {
+    gap: 12px !important;
+    background-color: transparent !important;
+    margin-bottom: 10px !important;
+}
+div[data-baseweb="tab"] {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border-radius: 8px !important;
+    padding: 10px 25px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    transition: all 0.3s ease !important;
+}
+div[data-baseweb="tab"][aria-selected="true"] {
+    background-color: rgba(16, 163, 127, 0.1) !important; /* Light Green Tint */
+    border-color: #10a37f !important; /* Green Border */
+    color: #10a37f !important; /* Green Text */
+}
+div[data-baseweb="tab"]:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 🔴 Ultimate Logo Lockdown */
+img.force-small-logo {
+    width: 80px !important;
+    height: 80px !important;
+    min-width: 80px !important;
+    min-height: 80px !important;
+    max-width: 80px !important;
+    max-height: 80px !important;
+    border-radius: 50% !important;
+    object-fit: contain !important;
+    background-color: white !important;
+    padding: 5px !important;
+    border: 2px solid #333 !important;
+    display: block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+
+/* 🔴 OVERRIDE STREAMLIT'S DEFAULT UPLOADER & MENUS */
+div[data-testid="stFileUploader"] {
+    background: rgba(30, 30, 30, 0.4) !important;
+    border: 1px dashed rgba(16, 163, 127, 0.5) !important;
+    border-radius: 16px !important;
+    transition: all 0.3s ease !important;
+    width: 100% !important;
+    display: block !important;
+}
+div[data-testid="stFileUploader"]:hover {
+    border: 1px dashed rgba(16, 163, 127, 1) !important;
+    background: rgba(16, 163, 127, 0.05) !important;
+}
+
+/* 🔗 Premium Source Pills (Perplexity Style) */
+.source-pill {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(16, 163, 127, 0.4);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: #e0e0e0;
+    margin: 4px 4px 4px 0;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+.source-pill:hover {
+    background: rgba(16, 163, 127, 0.15);
+    border: 1px solid #10a37f;
+    transform: translateY(-2px);
+}
+
+/* Sidebar or container e uploader visible korar jonno */
+[data-testid="stFileUploader"] {
+    opacity: 1 !important;
+    display: block !important;
+    visibility: visible !important;
+}
