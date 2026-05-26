@@ -300,18 +300,29 @@ else:
 
 
 # =====================================================================
-# ⚙️ PREMIUM ACCOUNT, BILLING, ADS & PRIVACY DIALOGS
+# ⚙️ PREMIUM ACCOUNT, BILLING, ADS & PRIVACY DIALOGS (DYNAMIC)
 # =====================================================================
 
 @st.dialog("⚙️ Account Settings & Subscription", width="large")
 def account_settings_dialog():
-    # 🔴 3 Tabs: Profile, Pro Subscription, Alternative Earn
-    tab_profile, tab_billing, tab_earn = st.tabs(["👤 Profile", "💎 Upgrade to Pro", "🎁 Earn Free Pro (Tasks)"])
+    tab_profile, tab_billing, tab_earn = st.tabs(["👤 Profile", "💎 Upgrade to Pro", "🎁 Earn Free Credits"])
     
+    # --- FETCH LIVE USER DATA ---
+    current_uid = st.session_state.username_id
+    try:
+        user_db_res = supabase.table("user_profiles").select("*").eq("id", current_uid).execute()
+        user_live_data = user_db_res.data[0] if user_db_res.data else {}
+        current_credits = user_live_data.get("reward_credits", 0)
+        sub_tier = user_live_data.get("subscription_tier", "free")
+    except Exception:
+        current_credits = 0
+        sub_tier = "free"
+
     with tab_profile:
         st.markdown(f"**Name:** {st.session_state.user_name}")
         st.markdown(f"**Email:** {st.session_state.user_email}")
         st.markdown(f"**Account Role:** `{st.session_state.user_role}`")
+        st.markdown(f"**Current Balance:** 🪙 `{current_credits} AI Credits`")
         st.info("Avatar and role changes are securely synced with Supabase.")
         
     with tab_billing:
@@ -323,9 +334,10 @@ def account_settings_dialog():
                 <h4 style='margin:0; color:#10a37f;'>Basic Tier</h4>
                 <h2>$0 <span style='font-size: 14px;'>/mo</span></h2>
                 <ul style='font-size: 13px;'><li>Llama 3 (Fast Engine)</li><li>Standard Rate Limits</li></ul>
-                <button disabled style='width: 100%; border-radius: 5px; padding: 5px;'>Current Plan</button>
             </div>
             """, unsafe_allow_html=True)
+            if sub_tier == "free":
+                st.button("Current Plan", disabled=True, use_container_width=True)
             
         with col2:
             st.markdown("""
@@ -335,20 +347,37 @@ def account_settings_dialog():
                 <ul style='font-size: 13px;'><li>GPT-4o & Claude 3.5 Sonnet</li><li>Unlimited Offline Models</li></ul>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("💳 Pay via bKash/SSLCommerz", type="primary", use_container_width=True):
-                st.success("Redirecting to secure local payment gateway...")
+            if sub_tier != "pro_scholar":
+                if st.button("💳 Pay via bKash/SSLCommerz", type="primary", use_container_width=True):
+                    # Call Backend Payment API
+                    st.success("Redirecting to secure local payment gateway...")
+            else:
+                st.button("Active Pro Plan", disabled=True, use_container_width=True)
                 
     with tab_earn:
-        st.markdown("### 🎁 Can't Pay? Earn Pro Access for Free!")
-        st.write("Support the platform by completing quick tasks to unlock 24 Hours of Pro Access.")
+        st.markdown("### 🎁 Earn Credits for Premium Models")
+        st.write("Use credits to unlock GPT-4o or Claude 3.5 without paying! (Cost: 5 Credits / Prompt)")
+        st.markdown(f"**Your Balance:** 🪙 {current_credits}")
         
         t_col1, t_col2 = st.columns(2)
         with t_col1:
-            st.markdown("📺 **Watch Sponsored Video** (30 sec)")
-            if st.button("▶️ Watch Now", key="ad_btn", use_container_width=True): st.info("Loading Video Ad API...")
+            st.markdown("📺 **Watch Sponsored Video** (+10 Credits)")
+            if st.button("▶️ Watch Now", key="ad_btn", use_container_width=True):
+                with st.spinner("Loading Ad..."):
+                    time.sleep(2) # Mock Ad delay
+                    try:
+                        new_balance = current_credits + 10
+                        supabase.table("user_profiles").update({"reward_credits": new_balance}).eq("id", current_uid).execute()
+                        st.success("🎉 +10 Credits Added!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Failed to add credits.")
+                        
         with t_col2:
-            st.markdown("📱 **Download & Try App** (+3 Days Pro)")
-            if st.button("📥 View Offers", key="task_btn", use_container_width=True): st.info("Loading Offerwall...")
+            st.markdown("📱 **Download & Try App** (+50 Credits)")
+            if st.button("📥 View Offers", key="task_btn", use_container_width=True): 
+                st.info("Redirecting to Offerwall...")
 
 
 
@@ -562,39 +591,40 @@ def bulk_move_dialog(selected_titles):
                 time.sleep(1.0); st.rerun()
 
 
-# 🔴 ENTERPRISE ADMIN ANALYTICS DASHBOARD
+# =====================================================================
+# 🔴 ENTERPRISE ADMIN ANALYTICS DASHBOARD (DYNAMIC)
+# =====================================================================
 @st.dialog("📈 Enterprise Admin Analytics", width="large")
 def admin_dashboard_dialog():
-    st.markdown("### 📊 System Overview")
-    users_data = st.session_state.users_db
-    history_data = st.session_state.chat_history
+    st.markdown("### 📊 Live System Overview")
+    
+    # Fetch real data from Supabase
+    try:
+        users_res = supabase.table("user_profiles").select("id", count="exact").execute()
+        chats_res = supabase.table("chat_history").select("id", count="exact").execute()
+        total_users = users_res.count if users_res.count else len(st.session_state.users_db)
+        total_chats = chats_res.count if chats_res.count else len(st.session_state.chat_history)
+    except:
+        total_users, total_chats = len(st.session_state.users_db), len(st.session_state.chat_history)
     
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👥 Total Users", len(users_data))
-    col2.metric("💬 Total Chats", len(history_data))
-    col3.metric("🧠 Active Models", "10 Engines") # 🔴 Fixed to 10
-    col4.metric("🟢 System Health", "100% Online")
+    col1.metric("👥 Total Users", total_users)
+    col2.metric("💬 Total AI Queries", total_chats)
+    col3.metric("🧠 Active Models", "10 Engines")
+    col4.metric("💰 Est. Revenue", f"${total_users * 1.5:.2f}") # Dummy revenue logic
     
     st.markdown("---")
-    
-    # 🔴 DYNAMIC GRAPHICAL CHART (Phase 3 functionality)
     st.markdown("#### 📈 Weekly Token Usage & Engagement")
     import pandas as pd
     import numpy as np
-    # Generating dynamic dummy data for the graph
-    chart_data = pd.DataFrame(np.random.randint(1000, 5000, size=(7, 2)), columns=["Free Tier Usage", "Pro Tier Usage"])
+    chart_data = pd.DataFrame(np.random.randint(1000, 5000, size=(7, 2)), columns=["Free Tier (Tokens)", "Pro Tier (Tokens)"])
     st.line_chart(chart_data, color=["#10a37f", "#58A6FF"])
     
     st.markdown("---")
-    st.markdown("#### 👤 Registered Users Directory")
-    for uid, info in users_data.items():
-        # 🔴 FIXED: UUID hider. It now strictly shows email
+    st.markdown("#### 👤 Recent Registered Users")
+    for uid, info in list(st.session_state.users_db.items())[:5]:
         user_email = info.get('email', uid) 
         st.markdown(f"- **{info.get('name', 'User')}** ({info.get('role', 'Student')}) ✉️ `{user_email}`")
-        
-    st.markdown("#### 📂 Recent Knowledge Queries")
-    for chat in history_data[:5]: 
-        st.markdown(f"- 📝 `{chat['title']}` *(Folder: {chat.get('folder', 'Uncategorized')})*")
 
 
 # 6. THE FLUID CSS BOSS
