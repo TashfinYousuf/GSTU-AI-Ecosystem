@@ -17,6 +17,9 @@ from langchain_community.vectorstores import SupabaseVectorStore
 from supabase import create_client, Client
 from groq import Groq
 from tavily import TavilyClient
+from fastapi import Request, Form
+from supabase import create_client, Client
+from fastapi.responses import RedirectResponse
 
 
 # Load Environment Variables (.env)
@@ -201,32 +204,24 @@ async def chat_with_ai(request: ChatRequest):
     is_bengali = bool(re.search(r'[\u0980-\u09FF]', user_query))
     
     if is_bengali:
-        lang_rule = "CRITICAL: You MUST answer ENTIRELY in BENGALI (বাংলা ফন্ট). Do not use English words unless absolute necessary for terminology."
+                            system_persona = """তুমি হচ্ছো GSTU-এর ইন্টারন্যাশনাল রিলেশনস (IR) ডিপার্টমেন্টের চিফ জিওপলিটিক্যাল অ্যানালিস্ট।
+তোমার উত্তর হবে অ্যাকাডেমিক, থিওরি-নির্ভর এবং অত্যন্ত প্রফেশনাল।"""
+                            lang_guard = "CRITICAL: Output MUST be entirely in standard BENGALI (বাংলা ফন্ট)।"
     else:
-        lang_rule = "CRITICAL: You MUST answer ENTIRELY in ENGLISH. Do not use Bengali under any circumstances."
-    
-    if not formatted_sources_list:
-        context_instruction = "You do not have any specific database or web sources for this query. Answer based on your general knowledge as an International Relations expert. Do NOT use inline citations like [1]."
-        source_mapping_text = "None"
-        db_context = "None"
-        web_context = "None"
-    else:
-        context_instruction = "INLINE CITATIONS REQUIRED: You MUST use inline citations like [1] or [2] at the end of sentences that use data from the sources below."
-        source_mapping_text = "\n".join([f"[{s['id']}] {s['title']}" for s in formatted_sources_list])
+        system_persona = """You are the Chief Geopolitical Analyst & Professor for the IR Department at GSTU.
+Your response MUST be highly academic, theoretically sound, and analytically deep. DO NOT provide shallow answers."""
+        lang_guard = "CRITICAL: You MUST answer strictly in scholarly ENGLISH. DO NOT USE BENGALI under any circumstances."
 
-    hybrid_prompt = f"""You are the Elite GSTU AI Assistant for International Relations.
-Date: {datetime.datetime.now().strftime("%B %d, %Y")}
+    hybrid_prompt = f"""{system_persona}
+{lang_guard}
 
-CRITICAL INSTRUCTIONS:
-1. {lang_rule}
-2. Use bold text and bullet points. DO NOT use HTML tags.
-3. {context_instruction}
-
---- AVAILABLE SOURCES ---
-{source_mapping_text}
+1. TIME-AWARENESS: Distinguish between historical context and current updates.
+2. STRICT FACT-GROUNDING: Use ONLY the provided Database and Web Data. Do not invent facts.
+3. ACADEMIC STANDARD: Analyze root causes and strategic impacts.
+4. INLINE CITATIONS: Use [1], [2] referencing the sources below.
 
 --- DATABASE KNOWLEDGE ---
-{db_context[:4000]}
+{db_context[:1500]}
 
 --- LIVE WEB DATA ---
 {web_context[:3000]}
@@ -234,7 +229,7 @@ CRITICAL INSTRUCTIONS:
 --- USER QUESTION ---
 {user_query}
 
-Provide detailed analysis:"""
+Provide detailed academic analysis:"""
 
     try:
         if is_bengali and "llama" in selected_model.lower(): 
@@ -354,6 +349,13 @@ async def earn_credits(user_id: str, action_type: str):
 # =====================================================================
 # 💳 PAYMENT GATEWAY INTEGRATION
 # =====================================================================
+# 🔴 Streamlit ফ্রন্টএন্ডের লিংক (লোকাল টেস্টিংয়ের জন্য localhost:8501)
+# প্রজেক্ট লাইভ করার সময় এখানে Render বা আপনার আসল ডোমেইন লিংক বসাতে হবে
+FRONTEND_URL = "http://localhost:8501"
+
+# Initialize Admin Client (Bypasses RLS)
+admin_supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+
 class PaymentRequest(BaseModel):
     user_id: str
     amount: float
@@ -361,20 +363,48 @@ class PaymentRequest(BaseModel):
 
 @app.post("/api/payment/initiate")
 async def initiate_payment(req: PaymentRequest):
-    try:
-        transaction_id = f"GSTU_TXN_{datetime.datetime.now().strftime('%Y%md%H%M%S')}"
-        payment_url = f"https://sandbox.sslcommerz.com/pay/{transaction_id}?amount={req.amount}"
-        return {
-            "status": "success",
-            "transaction_id": transaction_id,
-            "gateway_url": payment_url,
-            "message": "Payment intent created successfully."
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Note: Initiation is now directly handled in Streamlit via payment_manager.py"""
+    return {"message": "Please use payment_manager.py for initiation."}
 
-@app.post("/api/payment/webhook")
-async def payment_webhook(payload: dict):
-    status = payload.get("status")
-    if status == "VALID": return {"message": "Payment verified and account upgraded."}
-    else: return {"message": "Payment failed or cancelled."}
+
+@app.post("/api/payment/success")
+async def payment_success(request: Request):
+    """SSLCommerz will send POST data here after successful payment"""
+    form_data = await request.form()
+    
+    status = form_data.get("status")
+    tran_id = form_data.get("tran_id")
+    val_id = form_data.get("val_id")
+    
+    if status == "VALID":
+        # 1. Fetch User ID from our pending transactions
+        txn_res = admin_supabase.table("transactions").select("user_id").eq("id", tran_id).execute()
+        
+        if txn_res.data:
+            user_id = txn_res.data[0]["user_id"]
+            
+            # 2. Update Transaction Status
+            admin_supabase.table("transactions").update({
+                "status": "success",
+                "gateway_ref": val_id
+            }).eq("id", tran_id).execute()
+            
+            # 3. 🔴 UPGRADE USER TIER (Bypassing RLS with Admin Key)
+            admin_supabase.table("subscriptions").upsert({
+                "user_id": user_id,
+                "plan": "pro_scholar",
+                "status": "active",
+                "expires_at": (datetime.datetime.now() + timedelta(days=30)).isoformat()
+            }).execute()
+            
+            # 4. Redirect browser back to Streamlit app (Success UI)
+            return RedirectResponse(url=f"{FRONTEND_URL}?payment=success", status_code=303)
+            
+    # If validation fails, redirect to fail page
+    return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=303)
+
+@app.post("/api/payment/fail")
+@app.post("/api/payment/cancel")
+async def payment_fail_cancel(request: Request):
+    """Redirects user back to Streamlit if they cancel or payment fails"""
+    return RedirectResponse(url=f"{FRONTEND_URL}?payment=cancelled", status_code=303)

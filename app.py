@@ -3,14 +3,18 @@ import uuid
 import html
 import os
 import email
+import requests
 import hashlib
 import time
 import json
 import socket
 import secrets
 import base64
+from PIL import Image
 import tempfile
 import hmac
+import pandas as pd
+import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 import streamlit as st
@@ -28,6 +32,9 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_groq import ChatGroq
+from agent_tools import astra_core_tools
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 # Database and authentication module import
 from auth_logic import render_auth_interface, logout_user, init_auth_session, supabase
@@ -36,390 +43,52 @@ from analytics_engine import render_study_logger, render_analytics_dashboard
 from database import save_to_vector_db, search_context
 import os, json, time, logging, socket, html
 from streamlit_cookies_controller import CookieController
+from auth_manager import login_user, get_user_profile, controller
+from cloud_memory import get_user_sessions, get_session_messages, create_new_session, save_message_to_cloud
+from payment_manager import initiate_real_sslcommerz_payment, check_subscription_status
+from usage_manager import is_model_premium, check_rate_limit, increment_usage
+from auth_manager import login_user, get_user_profile, controller, supabase, get_oauth_url
+
 
 
 # 🔴 1. PAGE CONFIG MUST BE THE FIRST COMMAND!
-st.set_page_config(page_title="GSTU AI Assistant", layout="wide", page_icon="🎓", initial_sidebar_state="expanded")
+page_icon_img = Image.open("data/logo.png") if os.path.exists("data/logo.png") else "🎓"
+st.set_page_config(page_title="GSTU AI Assistant", layout="wide", initial_sidebar_state="expanded", page_icon=page_icon_img)
 
-# 🔴 2. INITIALIZE COOKIE CONTROLLER IMMEDIATELY
+
+# =====================================================================
+# 🛡️ GLOBAL SESSION STATE INITIALIZATION (Prevents NoneType Crashes)
+# =====================================================================
+if "users_db" not in st.session_state or st.session_state.users_db is None:
+    st.session_state.users_db = {}
+
+# Removed hardcoded Welcome message to keep chat UI clean
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+# =====================================================================
+# 🔴 2. PERSISTENT COOKIE & STATE INITIALIZATION
+# =====================================================================
 cookie_controller = CookieController()
 
-# 🔴 3. SESSION STATE VARIABLES (CONSOLIDATED)
+# Initialize all required auth states
+DEFAULT_STATES = {
+    "authenticated": False,
+    "logged_in": False,
+    "user_email": None,
+    "user_id": None,
+    "username_id": None,
+    "access_token": None,
+    "refresh_token": None,
+    "just_logged_in": False,
+    "auth_checked_first_run": False  # 🔴 NEW: Anti-Flash Flag
+}
 
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-    
-if "user_info" not in st.session_state:
-    st.session_state["user_info"] = None
+for key, val in DEFAULT_STATES.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-# 🔴 4. AUTO-RECOVERY LOGIC (THE MAGIC FIX)
-
-try:
-    saved_session = cookie_controller.get("gstu_session") 
-    if saved_session and not st.session_state["authenticated"]:
-        st.session_state["authenticated"] = True
-        st.session_state["user_info"] = saved_session
-except Exception as e:
-    pass
-
-# =====================================================================
-# 🎨 PREMIUM MODERN UI CSS
-# =====================================================================
-st.markdown("""
-    <style>
-    .block-container { max-width: 95% !important; transition: max-width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.4s ease !important; }
-    div.stButton > button { border-radius: 8px !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; background-color: transparent !important; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important; }
-    div.stButton > button:hover { border-color: #10a37f !important; color: #10a37f !important; transform: translateY(-2px) !important; box-shadow: 0 4px 12px rgba(16, 163, 127, 0.2) !important; }
-    div.stSelectbox > div[data-baseweb="select"] > div { background-color: transparent !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; transition: all 0.3s ease !important; }
-    div.stSelectbox > div[data-baseweb="select"] > div:hover { border-color: #10a37f !important; box-shadow: 0 0 10px rgba(16, 163, 127, 0.3) !important; }
-    [data-testid="stFileUploadDropzone"] { border: 2px dashed rgba(255, 255, 255, 0.3) !important; border-radius: 12px !important; background: transparent !important; transition: all 0.3s ease-in-out !important; }
-    [data-testid="stFileUploadDropzone"]:hover { border-color: #10a37f !important; background-color: rgba(16, 163, 127, 0.05) !important; transform: scale(1.02) !important; }
-    </style>
-""", unsafe_allow_html=True)
-
-
-
-# 🔴 THE MASTER FEATURE FLAG
-ENABLE_AGENTIC_FEATURES = True # (এটা True যেহেতু আমরা backend_api.py-তে Agentic Core বসিয়েছি)
-
-
-# Important Dependencies
-SESSION_MAX_AGE_SEC = 86400
-OTP_EXPIRY_SEC = 300
-ts = int(time.time())
-sig = ""
-exc = Exception("System Error")
-up_files = [] 
-logger = logging.getLogger(__name__) 
-
-# 🔴 GLOBAL DB PATH
-DB_FILE = "users_db.json"
-SESSION_FILE = "current_session.json"
-
-# --- MISSING FUNCTIONS ---
-def clear_local_session():
-    if os.path.exists(SESSION_FILE): 
-        try: os.remove(SESSION_FILE)
-        except: pass
-
-def load_users():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f: return json.load(f)
-    return {}
-
-# Helper Functions
-def esc(value: str) -> str: return html.escape(str(value), quote=True)
-def is_online(host="8.8.8.8", port=53, timeout=3) -> bool:
-    sock = None
-    try:
-        sock = socket.socket(AF_INET, SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((host, port))
-        return True
-    except OSError: return False
-    finally:
-        if sock: sock.close()
-
-# 🔴 LOAD USERS DB EARLY
-if "users_db" not in st.session_state: 
-    st.session_state.users_db = load_users()
-
-
-@st.dialog("🛡️ Privacy Policy & Help Center", width="large")
-def help_privacy_dialog():
-    tab_help, tab_privacy = st.tabs(["🆘 Help Center", "🔐 Privacy Policy"])
-    
-    with tab_help:
-        st.markdown("### How to use GSTU AI?")
-        with st.expander("1. How do I switch AI engines?"): st.write("Click the dropdown menu at the top of the chat interface to switch between Fast Engine (Llama), Web Search (Gemini), and Offline Mode.")
-        with st.expander("2. How does the offline mode work?"): st.write("You must run the local GPT4All server on port 4891. Your data never leaves your device.")
-        with st.expander("3. Need further support?"): st.write("Contact the admin at: `yousufaltashfin@gmail.com`")
-        
-    with tab_privacy:
-        st.markdown("""
-        ### GSTU IR AI - Data Protection Agreement
-        **1. End-to-End Encryption:** All chat queries and vector embeddings are secured.  
-        **2. Zero Data Selling:** We do not sell your academic prompts or personal data to third parties.  
-        **3. Institutional Data:** Uploaded PDFs are stored locally in ChromaDB and are not exposed to cloud providers unless specifically processed by a cloud model.  
-        **4. Supabase Auth:** Authentication is managed securely via Supabase OAuth 2.0 protocols.
-        """)
-
-
-# 👑 ADMIN SYSTEM
-ADMIN_EMAILS = ["yousufaltashfin@gmail.com"]
-
-# 🍪 ROBUST COOKIE AUTO-LOGIN (Auto-Logout Fix)
-saved_uid = cookie_controller.get("gstu_uid")
-if saved_uid and not st.session_state.get("logged_in", False):
-    if saved_uid in st.session_state.users_db:
-        user_info = st.session_state.users_db[saved_uid]
-        st.session_state["authenticated"] = True
-        st.session_state.username_id = saved_uid
-        st.session_state.user_name = user_info.get("name", "User")
-        st.session_state.user_email = user_info.get("email", "admin@gstu.edu")
-        
-        # Admin Role Security Check
-        if st.session_state.user_email in ADMIN_EMAILS:
-            st.session_state.users_db[saved_uid]["role"] = "Admin"
-            
-        st.session_state.user_role = st.session_state.users_db[saved_uid]["role"]
-        st.rerun() # 🔴 কুকি পেলেই সাথে সাথে ড্যাশবোর্ডে নিয়ে যাবে
-
-
-# 🧠 SUPABASE OAUTH LOGIC (Smooth Transition & Anti-Flash)
-if "code" in st.query_params:
-    st.markdown("<h3 style='text-align:center; margin-top: 20vh; color: #10a37f;'>🔄 Securing Connection... Please wait.</h3>", unsafe_allow_html=True)
-    try:
-        auth_code = st.query_params["code"]
-        if isinstance(auth_code, list): auth_code = auth_code[0]
-        
-        session = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
-        if session and session.user:
-            uid = session.user.id
-            email = session.user.email
-            name = session.user.user_metadata.get("full_name", email.split("@")[0])
-            
-            assigned_role = "Admin" if email in ADMIN_EMAILS else session.user.user_metadata.get("role", "Student")
-            
-            st.session_state["authenticated"] = True
-            st.session_state.username_id = uid
-            st.session_state.user_email = email
-            st.session_state.user_name = name
-            st.session_state.user_role = assigned_role
-            
-            if uid not in st.session_state.users_db:
-                st.session_state.users_db[uid] = {"name": name, "role": assigned_role, "email": email, "avatar": None}
-            else:
-                st.session_state.users_db[uid]["role"] = assigned_role 
-            
-            with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-            cookie_controller.set("gstu_uid", uid, max_age=2592000)
-            
-            st.toast(f"✅ Login Successful! Welcome back, {name}", icon="🎉")
-            time.sleep(1) # Smooth buffer
-            st.query_params.clear() 
-            st.rerun()
-            
-    except Exception as e:
-        st.error(f"Auth Error: {e}")
-        st.query_params.clear()
-        time.sleep(1)
-        st.rerun()
-    st.stop() # 🔴 CRITICAL: Stops the giant FB logo from rendering below!
-
-
-# 👑 ADMIN SYSTEM (Strict RBAC)
-ADMIN_EMAILS = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
-
-# 🛑 THE GATEKEEPER: Stop everything if not logged in
-if not st.session_state.get("logged_in", False):
-    render_auth_interface()
-    st.stop()
-else:
-    # 🔴 SAVE USER TO DB & FORCE ADMIN ROLE
-    current_uid = st.session_state.username_id
-    user_id = current_uid
-    
-    # 🔴 Strict Admin Override (Works for both Manual & Google Auth)
-    if st.session_state.user_email in ADMIN_EMAILS:
-        st.session_state.user_role = "Admin"
-        
-    if current_uid not in st.session_state.users_db:
-        st.session_state.users_db[current_uid] = {
-            "name": st.session_state.user_name,
-            "role": st.session_state.user_role,
-            "email": st.session_state.user_email,
-            "avatar": None
-        }
-        with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-    else:
-        # Update existing user role just in case
-        st.session_state.users_db[current_uid]["role"] = st.session_state.user_role
-        with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-
-
-# 🛑 THE GATEKEEPER
-if not st.session_state.get("logged_in", False):
-    render_auth_interface()
-    st.stop()
-else:
-    # 🔴 SAVE USER TO DB IF NEW
-    current_uid = st.session_state.username_id
-    user_id = current_uid
-    if current_uid not in st.session_state.users_db:
-        st.session_state.users_db[current_uid] = {
-            "name": st.session_state.user_name,
-            "role": "Student",
-            "email": st.session_state.user_email,
-            "avatar": None
-        }
-        with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-
-    st.session_state.user_role = st.session_state.users_db[current_uid].get("role", "Student")
-
-# --- চ্যাট হিস্ট্রি এবং মেমোরি ---
-if "chat_history_loaded" not in st.session_state: st.session_state.chat_history_loaded = False
-if "messages" not in st.session_state: st.session_state.messages = []
-
-def get_base64_image(image_path):
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
-    return None
-
-logo_b64 = get_base64_image("logo.png")
-
-
-# 👑 ADMIN SYSTEM (Strict RBAC)
-ADMIN_EMAILS = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
-
-# 🛑 THE GATEKEEPER: Stop everything if not logged in
-if not st.session_state.get("logged_in", False):
-    render_auth_interface()
-    st.stop()
-else:
-    # 🔴 SAVE USER TO DB & FORCE ADMIN ROLE
-    current_uid = st.session_state.username_id
-    user_id = current_uid
-    
-    # 🔴 Strict Admin Override (Works for both Manual & Google Auth)
-    if st.session_state.user_email in ADMIN_EMAILS:
-        st.session_state.user_role = "Admin"
-        
-    if current_uid not in st.session_state.users_db:
-        st.session_state.users_db[current_uid] = {
-            "name": st.session_state.user_name,
-            "role": st.session_state.user_role,
-            "email": st.session_state.user_email,
-            "avatar": None
-        }
-        with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-    else:
-        # Update existing user role just in case
-        st.session_state.users_db[current_uid]["role"] = st.session_state.user_role
-        with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
-
-
-# =====================================================================
-# ⚙️ PREMIUM ACCOUNT, BILLING, ADS & PRIVACY DIALOGS (DYNAMIC)
-# =====================================================================
-
-@st.dialog("⚙️ Account Settings & Subscription", width="large")
-def account_settings_dialog():
-    tab_profile, tab_billing, tab_earn = st.tabs(["👤 Profile", "💎 Upgrade to Pro", "🎁 Earn Free Credits"])
-    
-    # --- FETCH LIVE USER DATA ---
-    current_uid = st.session_state.username_id
-    try:
-        user_db_res = supabase.table("user_profiles").select("*").eq("id", current_uid).execute()
-        user_live_data = user_db_res.data[0] if user_db_res.data else {}
-        current_credits = user_live_data.get("reward_credits", 0)
-        sub_tier = user_live_data.get("subscription_tier", "free")
-    except Exception:
-        current_credits = 0
-        sub_tier = "free"
-
-    with tab_profile:
-        st.markdown(f"**Name:** {st.session_state.user_name}")
-        st.markdown(f"**Email:** {st.session_state.user_email}")
-        st.markdown(f"**Account Role:** `{st.session_state.user_role}`")
-        st.markdown(f"**Current Balance:** 🪙 `{current_credits} AI Credits`")
-        st.info("Avatar and role changes are securely synced with Supabase.")
-        
-    with tab_billing:
-        st.markdown("### 💎 Unlock Limitless AI Power")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("""
-            <div style='border: 1px solid #10a37f; padding: 15px; border-radius: 10px;'>
-                <h4 style='margin:0; color:#10a37f;'>Basic Tier</h4>
-                <h2>$0 <span style='font-size: 14px;'>/mo</span></h2>
-                <ul style='font-size: 13px;'><li>Llama 3 (Fast Engine)</li><li>Standard Rate Limits</li></ul>
-            </div>
-            """, unsafe_allow_html=True)
-            if sub_tier == "free":
-                st.button("Current Plan", disabled=True, use_container_width=True)
-            
-        with col2:
-            st.markdown("""
-            <div style='border: 1px solid #58A6FF; padding: 15px; border-radius: 10px; background: rgba(88, 166, 255, 0.05);'>
-                <h4 style='margin:0; color:#58A6FF;'>Pro Scholar</h4>
-                <h2>$5.99 <span style='font-size: 14px;'>/mo</span></h2>
-                <ul style='font-size: 13px;'><li>GPT-4o & Claude 3.5 Sonnet</li><li>Unlimited Offline Models</li></ul>
-            </div>
-            """, unsafe_allow_html=True)
-            if sub_tier != "pro_scholar":
-                if st.button("💳 Pay via bKash/SSLCommerz", type="primary", use_container_width=True):
-                    # Call Backend Payment API
-                    st.success("Redirecting to secure local payment gateway...")
-            else:
-                st.button("Active Pro Plan", disabled=True, use_container_width=True)
-                
-    with tab_earn:
-        st.markdown("### 🎁 Earn Credits for Premium Models")
-        st.write("Use credits to unlock GPT-4o or Claude 3.5 without paying! (Cost: 5 Credits / Prompt)")
-        st.markdown(f"**Your Balance:** 🪙 {current_credits}")
-        
-        t_col1, t_col2 = st.columns(2)
-        with t_col1:
-            st.markdown("📺 **Watch Sponsored Video** (+10 Credits)")
-            if st.button("▶️ Watch Now", key="ad_btn", use_container_width=True):
-                with st.spinner("Loading Ad..."):
-                    time.sleep(2) # Mock Ad delay
-                    try:
-                        new_balance = current_credits + 10
-                        supabase.table("user_profiles").update({"reward_credits": new_balance}).eq("id", current_uid).execute()
-                        st.success("🎉 +10 Credits Added!")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error("Failed to add credits.")
-                        
-        with t_col2:
-            st.markdown("📱 **Download & Try App** (+50 Credits)")
-            if st.button("📥 View Offers", key="task_btn", use_container_width=True): 
-                st.info("Redirecting to Offerwall...")
-
-
-
-# 🔴 FIXED PROFILE PILL LAYOUT (All duplicates removed)
-col_space, col_profile = st.columns([0.88, 0.12])
-with col_profile:
-    with st.container():
-        user_data = st.session_state.users_db.get(current_uid, {})
-        avatar_b64 = user_data.get("avatar")
-        btn_label = f"👤 {st.session_state.user_name.split()[0][:7]}"
-        
-        with st.popover(btn_label, use_container_width=True):
-            if avatar_b64:
-                st.markdown(f"<div style='text-align: center;'><img src='data:image/jpeg;base64,{avatar_b64}' style='width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid #10a37f; margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div style='text-align: center; font-size: 50px; margin-bottom: 5px;'>👤</div>", unsafe_allow_html=True)
-                
-            st.markdown(f"<h4 style='text-align: center; margin: 0;'>{st.session_state.user_name}</h4>", unsafe_allow_html=True)
-            st.markdown(f"<p style='text-align: center; opacity: 0.7; margin: 0 0 15px 0; font-size: 13px;'>{st.session_state.user_role} Account</p>", unsafe_allow_html=True)
-            
-            uploaded_pic = st.file_uploader("Update Picture", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
-            if uploaded_pic is not None:
-                bytes_data = uploaded_pic.getvalue()
-                b64_str = base64.b64encode(bytes_data).decode()
-                if b64_str != st.session_state.users_db[current_uid].get("avatar"):
-                    st.session_state.users_db[current_uid]["avatar"] = b64_str
-                    saved_uid(st.session_state.users_db)
-                    st.toast("✅ Profile picture updated successfully!")
-                    time.sleep(0.5)
-                    st.rerun()
-
-            st.divider()
-            if st.button("⚙️ Account Settings", use_container_width=True):
-                account_settings_dialog() # 🔴 Calls the new dialog
-
-            if st.button("🚪 Logout", key="master_logout_btn_123", use_container_width=True, type="primary"):
-                try:
-                    cookie_controller.remove("gstu_uid") # 🔴 Safe Cookie Removal
-                except KeyError:
-                    pass # কুকি না থাকলে ক্র্যাশ করবে না
-                logout_user()
-                
 
 # =====================================================================
 # SECURE JSON HISTORY MANAGER (ISOLATED BY USER)
@@ -479,14 +148,960 @@ def save_chat_history(history_list):
         json.dump(final_data, f, ensure_ascii=False, indent=4)
 
 
+# =====================================================================
+# 🔐 OAUTH TRIGGER & CALLBACK HANDLER (PKCE BUG FIX)
+# =====================================================================
+# 1. 🔴 TRIGGER LOGIN: Generates URL exactly on click (Prevents Overwrite)
+if "login_provider" in st.query_params:
+    provider = st.query_params["login_provider"]
+    url = get_oauth_url(provider)
+    st.query_params.clear()
+    # Execute immediate safe redirect
+    st.components.v1.html(f'<meta http-equiv="refresh" content="0; url={url}">', height=0)
+    st.stop()
+
+# 2. 🟢 CALLBACK CATCHER: Receives successful code from Google/FB
+if "code" in st.query_params:
+    try:
+        auth_code = st.query_params["code"]
+        res = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
+        
+        if res.session:
+            session = res.session
+            user = res.user
+            
+            cookie_controller.set("access_token", session.access_token, max_age=2592000)
+            cookie_controller.set("refresh_token", session.refresh_token, max_age=2592000)
+            cookie_controller.set("user_id", user.id, max_age=2592000)
+            
+            st.session_state.update({
+                'authenticated': True, 'logged_in': True, 'user_id': user.id, 
+                'username_id': user.id, 'user_email': user.email, 'just_logged_in': True
+            })
+            
+            st.session_state.chat_history = load_chat_history()
+            st.query_params.clear()
+            time.sleep(0.5) 
+            st.rerun()
+            
+    except Exception as e:
+        # 🔴 NUCLEAR FIX FOR PKCE BUG: Catch the challenge error smoothly
+        error_msg = str(e).lower()
+        if "code challenge" in error_msg:
+            st.warning("⚠️ Session expired during Google Login. Please click the login button again.")
+        else:
+            st.error(f"⚠️ Authentication Failed: {e}")
+            
+        st.query_params.clear()
+        if "oauth_urls" in st.session_state:
+            del st.session_state.oauth_urls # Force regenerate new URLs
+        time.sleep(2)
+        st.rerun()
+
+
+# 🔴 GLOBAL DB PATH
+DB_FILE = "users_db.json"
+SESSION_FILE = "current_session.json"
+
+def load_users():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f: return json.load(f)
+    return {}
+
+def clear_local_session():
+    if os.path.exists(SESSION_FILE): 
+        try: os.remove(SESSION_FILE)
+        except: pass
+
+if "users_db" not in st.session_state: 
+    st.session_state.users_db = load_users()
+
+
+# 🔴 3. SESSION STATE VARIABLES
+if "authenticated" not in st.session_state: st.session_state["authenticated"] = False
+if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
+if "user_info" not in st.session_state: st.session_state["user_info"] = None
+if "voice_draft" not in st.session_state: st.session_state.voice_draft = "" # Voice draft save thakbe
+
+
 # 4. Base64 Image Loader
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
     return None
 
-logo_b64 = get_base64_image("logo.png")
+# data folder er theke call kora
+logo_b64 = get_base64_image("data/logo.png")
+
+# HTML Syntax: 'data/logo.png' er bodole 'data:image/png' hobe
 logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 42px; height: 42px; border-radius: 50%; margin-right: 12px; object-fit: cover;'>" if logo_b64 else "<span style='font-size: 42px; margin-right: 10px;'>🎓</span>"
+
+
+# =====================================================================
+# 🎨 PREMIUM MODERN UI CSS
+# =====================================================================
+st.markdown("""
+    <style>
+    .block-container { max-width: 95% !important; transition: max-width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.4s ease !important; }
+    div.stButton > button { border-radius: 8px !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; background-color: transparent !important; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important; }
+    div.stButton > button:hover { border-color: #10a37f !important; color: #10a37f !important; transform: translateY(-2px) !important; box-shadow: 0 4px 12px rgba(16, 163, 127, 0.2) !important; }
+    div.stSelectbox > div[data-baseweb="select"] > div { background-color: transparent !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; transition: all 0.3s ease !important; }
+    div.stSelectbox > div[data-baseweb="select"] > div:hover { border-color: #10a37f !important; box-shadow: 0 0 10px rgba(16, 163, 127, 0.3) !important; }
+    [data-testid="stFileUploadDropzone"] { border: 2px dashed rgba(255, 255, 255, 0.3) !important; border-radius: 12px !important; background: transparent !important; transition: all 0.3s ease-in-out !important; }
+    [data-testid="stFileUploadDropzone"]:hover { border-color: #10a37f !important; background-color: rgba(16, 163, 127, 0.05) !important; transform: scale(1.02) !important; }
+    /* Prevents invisible overlays from blocking clicks */
+    .loading-screen, .center-welcome {
+        pointer-events: none !important;
+        visibility: hidden;
+    }
+            
+    /* Ensure Streamlit Dropzone is ALWAYS clickable */
+    [data-testid="stFileUploadDropzone"] { 
+        border: 2px dashed rgba(255, 255, 255, 0.3) !important; 
+        border-radius: 12px !important; 
+        background: transparent !important; 
+        transition: all 0.3s ease-in-out !important; 
+        pointer-events: auto !important; /* Force clickability */
+        z-index: 99 !important;
+    }
+    
+    # Apply background ONLY to the main container, not globally overriding everything
+    .stApp {background-color: #0E1117; /* Solid fallback */}
+    /* Target ONLY the login container for the glassmorphism blur to prevent sidebar leaks */
+    .login-glass-container {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border-radius: 15px;
+        padding: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+
+# 🔴 THE MASTER FEATURE FLAG
+ENABLE_AGENTIC_FEATURES = False # (এটা True যেহেতু আমরা backend_api.py-তে Agentic Core বসিয়েছি)
+
+
+# Important Dependencies
+SESSION_MAX_AGE_SEC = 86400
+OTP_EXPIRY_SEC = 300
+ts = int(time.time())
+sig = ""
+exc = Exception("System Error")
+up_files = [] 
+logger = logging.getLogger(__name__) 
+
+
+# --- MISSING FUNCTIONS ---
+def clear_local_session():
+    if os.path.exists(SESSION_FILE): 
+        try: os.remove(SESSION_FILE)
+        except: pass
+
+def load_users():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f: return json.load(f)
+    return {}
+
+# Helper Functions
+def esc(value: str) -> str: return html.escape(str(value), quote=True)
+def is_online(host="8.8.8.8", port=53, timeout=3) -> bool:
+    sock = None
+    try:
+        sock = socket.socket(AF_INET, SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        return True
+    except OSError: return False
+    finally:
+        if sock: sock.close()
+
+# 🔴 LOAD USERS DB EARLY
+if "users_db" not in st.session_state: 
+    st.session_state.users_db = load_users()
+
+
+@st.dialog("🛡️ Privacy Policy & Help Center", width="large")
+def help_privacy_dialog():
+    tab_help, tab_privacy = st.tabs(["🆘 Help Center", "🔐 Privacy Policy"])
+    
+    with tab_help:
+        st.markdown("### How to use GSTU AI?")
+        with st.expander("1. How do I switch AI engines?"): st.write("Click the dropdown menu at the top of the chat interface to switch between Fast Engine (Llama), Web Search (Gemini), and Offline Mode.")
+        with st.expander("2. How does the offline mode work?"): st.write("You must run the local GPT4All server on port 4891. Your data never leaves your device.")
+        with st.expander("3. Need further support?"): st.write("Contact the admin at: `yousufaltashfin@gmail.com`")
+        
+    with tab_privacy:
+        st.markdown("""
+        ### GSTU IR AI - Data Protection Agreement
+        **1. End-to-End Encryption:** All chat queries and vector embeddings are secured.  
+        **2. Zero Data Selling:** We do not sell your academic prompts or personal data to third parties.  
+        **3. Institutional Data:** Uploaded PDFs are stored locally in ChromaDB and are not exposed to cloud providers unless specifically processed by a cloud model.  
+        **4. Supabase Auth:** Authentication is managed securely via Supabase OAuth 2.0 protocols.
+        """)
+
+
+# 👑 ADMIN SYSTEM
+ADMIN_EMAILS = ["yousufaltashfin@gmail.com"]
+
+# ---------------------------------------------------------
+# ☢️ NUCLEAR FIX: SILENT COOKIE HANDLER & LOGIN TOAST
+# ---------------------------------------------------------
+
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+try:
+    token = cookie_controller.get('auth_token')
+    saved_uid = cookie_controller.get('gstu_uid')
+    
+    if token and saved_uid and not st.session_state['authenticated']:
+        st.session_state['authenticated'] = True
+        st.session_state['user_id'] = saved_uid
+        # 🔴 FIX: Instantly load history for returning users
+        st.session_state.chat_history = load_chat_history()
+        st.toast("✅ Login Successful! Welcome back.", icon="🎉")
+except Exception:
+    time.sleep(0.1)
+
+# 🧠 SUPABASE OAUTH LOGIC (Smooth Transition & Anti-Flash)
+if "code" in st.query_params:
+    # 🔴 FULL SCREEN LOADING OVERLAY (Hides everything including default Streamlit UI)
+    st.markdown("""
+        <style>
+        .block-container { display: none !important; }
+        header { display: none !important; }
+        .loading-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #0f172a; z-index: 999999; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+        }
+        @keyframes pulse { 0% { opacity: 0.6; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.6; transform: scale(0.98); } }
+        .loading-text { color: #10a37f; font-family: 'Inter', sans-serif; font-size: 28px; font-weight: 800; animation: pulse 1.5s infinite ease-in-out; }
+        </style>
+        <div class="loading-screen">
+            <div class="loading-text">🔄 Securing Connection...</div>
+            <p style="color: #94a3b8; font-family: sans-serif; margin-top: 10px;">Authenticating your credentials.</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    try:
+        auth_code = st.query_params["code"]
+        if isinstance(auth_code, list): auth_code = auth_code[0]
+        session = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
+        if session and session.user:
+            uid, email = session.user.id, session.user.email
+            name = session.user.user_metadata.get("full_name", email.split("@")[0])
+            assigned_role = "Admin" if email in ADMIN_EMAILS else session.user.user_metadata.get("role", "Student")
+            
+            st.session_state.update({"authenticated": True, "logged_in": True, "username_id": uid, "user_email": email, "user_name": name, "user_role": assigned_role})
+            st.session_state.just_logged_in = True # Trigger toast
+            
+            if uid not in st.session_state.users_db: st.session_state.users_db[uid] = {"name": name, "role": assigned_role, "email": email, "avatar": None}
+            else: st.session_state.users_db[uid]["role"] = assigned_role 
+            
+            with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
+            cookie_controller.set("gstu_uid", uid, max_age=2592000)
+            
+            st.query_params.clear() 
+            st.rerun()
+    except Exception as e:
+        st.query_params.clear()
+        st.rerun()
+    st.stop()
+    
+    
+# 🔴 CENTRAL WELCOME DIALOG (Auto-Closes smoothly)
+@st.dialog("✨ Welcome to GSTU IR Ecosystem", width="small")
+def welcome_dialog():
+    st.markdown("<h3 style='text-align:center; color: #10a37f;'>Authentication Successful!</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:gray;'>Loading your secure dashboard...</p>", unsafe_allow_html=True)
+    time.sleep(1.5)
+    st.session_state.just_logged_in = False
+    st.rerun()
+
+if st.session_state.get("just_logged_in", False):
+    welcome_dialog()
+
+# =====================================================================
+# 💎 DASHBOARD GLASSMORPHISM (ULTRA PREMIUM DARK VIBE - EXACT PIC 2)
+# =====================================================================
+
+dash_bg_b64 = ""
+for path in ["background_pic.png", "data/background_pic.png"]:
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            dash_bg_b64 = base64.b64encode(f.read()).decode()
+            break
+            
+if dash_bg_b64:
+    st.markdown(f"""
+        <style>
+        /* 🔴 1. FULL-SCREEN SEAMLESS DARK BACKGROUND */
+        .stApp {{ background: transparent !important; color: #f1f5f9 !important; }}
+        .stApp::before {{
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            /* 🔴 MAGIC HERE: Deep Dark Navy Gradient forcefully applied OVER the blurred image */
+            background: linear-gradient(rgba(10, 15, 30, 0.85), rgba(5, 8, 15, 0.95)), url('data:image/jpeg;base64,{dash_bg_b64}') center/cover no-repeat;
+            filter: blur(12px); 
+            z-index: -999; transform: scale(1.05);
+        }}
+        
+        /* 🔴 2. NUKE STREAMLIT'S DEFAULT SOLID BLOCKS (But keep resizer safe) */
+        [data-testid="stHeader"], 
+        [data-testid="stBottom"], 
+        [data-testid="stBottom"] > div {{
+            background: transparent !important;
+        }}
+        
+        /* 🔴 3. PERFECT SIDEBAR GLASSMORPHISM (No width locking) */
+        [data-testid="stSidebar"] {{
+            background-color: rgba(10, 15, 30, 0.4) !important;
+            backdrop-filter: blur(25px) !important;
+            -webkit-backdrop-filter: blur(25px) !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+        }}
+        
+        /* 🔴 4. CHAT INPUT SURROUNDING FIX */
+        .stChatInputContainer {{
+            background: transparent !important;
+            padding-bottom: 25px !important;
+        }}
+        [data-testid="stChatInput"] {{
+            background-color: rgba(15, 23, 42, 0.8) !important; /* Pic 2 Dark Input Box */
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 20px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+            color: white !important;
+        }}
+        
+        /* 🔴 5. CHAT MESSAGES (Pic 2 Style Deep Dark Slate) */
+        [data-testid="stChatMessage"] {{
+            background-color: rgba(20, 29, 46, 0.7) !important; /* Exactly like Pic 2 Chat Bubbles */
+            backdrop-filter: blur(15px) !important;
+            -webkit-backdrop-filter: blur(15px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-radius: 12px !important;
+            padding: 15px !important;
+            color: #e2e8f0 !important;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
+        }}
+
+        /* 🔴 UNLOCK SIDEBAR DYNAMIC RESIZER */
+        [data-testid="stSidebarResizer"] {{
+            z-index: 99999 !important; /* Resizer কে সবার উপরে নিয়ে আসা হলো */
+            cursor: col-resize !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }}
+
+        [data-testid="stSidebar"] {{
+            min-width: 260px !important; 
+            max-width: 600px !important; /* ইউজারের টানার জন্য ম্যাক্স লিমিট খুলে দেওয়া হলো */
+            transition: width 0.2s ease-in-out !important;
+        }}
+
+        </style>
+    """, unsafe_allow_html=True)
+
+
+# 👑 ADMIN SYSTEM (Strict RBAC)
+ADMIN_EMAILS = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
+
+
+# --- চ্যাট হিস্ট্রি এবং মেমোরি ---
+if "chat_history_loaded" not in st.session_state: st.session_state.chat_history_loaded = False
+if "messages" not in st.session_state: st.session_state.messages = []
+
+
+# 👑 ADMIN SYSTEM (Strict RBAC)
+ADMIN_EMAILS = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
+
+
+
+# =====================================================================
+# 🔐 SECURE SUPABASE SESSION RESTORATION
+# =====================================================================
+if not st.session_state["authenticated"]:
+    try:
+        # Fetch tokens securely from browser cookies
+        saved_access = cookie_controller.get("access_token")
+        saved_refresh = cookie_controller.get("refresh_token")
+        saved_uid = cookie_controller.get("user_id")
+
+        if saved_access and saved_refresh:
+            # Tell Supabase to restore the session using the refresh token
+            session = supabase.auth.set_session(saved_access, saved_refresh)
+            
+            if session and session.user:
+                st.session_state["authenticated"] = True
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = session.user.id
+                st.session_state["username_id"] = session.user.id
+                st.session_state["user_email"] = session.user.email
+                st.session_state["access_token"] = session.access_token
+                st.session_state["refresh_token"] = session.refresh_token
+                
+                # Instantly load chat history without flashing red errors
+                st.session_state.chat_history = load_chat_history()
+    except Exception as e:
+        # Invalid or expired token, let the user log in again
+        pass
+
+# --- UI Routing (Premium Glassmorphism) ---
+if not st.session_state['authenticated']:
+    
+    # Force Initialize auth_mode
+    if "auth_mode" not in st.session_state:
+        st.session_state.auth_mode = "login"
+
+    # =====================================================================
+    # 🛑 ULTIMATE ANTI-FLASH OVERLAY & ZOOM RESET
+    # =====================================================================
+    st.markdown("""
+        <style>
+        /* 1. Force Reset Zoom for Login Page */
+        html, body, [data-testid="stAppViewContainer"] { zoom: 1.0 !important; transform: none !important; }
+        
+        /* 2. Splash Screen covers everything immediately */
+        .supreme-splash {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: #05080f; z-index: 999999999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            animation: splashFade 0.3s ease-in-out 1.2s forwards; 
+        }
+        .supreme-splash-text {
+            color: #10a37f; font-family: 'Inter', sans-serif; font-size: 22px; font-weight: 700;
+            animation: pulse 0.8s infinite alternate; letter-spacing: -0.5px;
+        }
+        @keyframes pulse { from { opacity: 0.5; transform: scale(0.95); } to { opacity: 1; transform: scale(1.05); } }
+        @keyframes splashFade { to { opacity: 0; visibility: hidden; } }
+        
+        /* 3. Hide the main container until splash is done to prevent flash */
+        .block-container {
+            opacity: 0;
+            animation: formReveal 0.3s ease-in-out 1.2s forwards;
+        }
+        @keyframes formReveal { to { opacity: 1; } }
+        </style>
+        
+        <div class="supreme-splash">
+            <div class="supreme-splash-text">✨ Syncing Ecosystem...</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 1. GET LOGO
+    logo_b64 = ""
+    for path in ["logo.png", "data/logo.png"]:
+        if os.path.exists(path):
+            with open(path, "rb") as f: 
+                logo_b64 = base64.b64encode(f.read()).decode()
+                break
+                
+    logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 55px; height: 55px; border-radius: 50%; margin-bottom: 5px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'>" if logo_b64 else "<span style='font-size: 45px;'>🎓</span>"
+
+    # 2. GET BACKGROUND IMAGE
+    bg_b64 = ""
+    for path in ["background_pic.png", "data/background_pic.png"]:
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                bg_b64 = base64.b64encode(f.read()).decode()
+                break
+    
+    # 3. DYNAMIC CSS 
+    if bg_b64:
+        bg_css = f"""
+        .stApp {{ background-color: #05080f; }}
+        .stApp::before {{
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: url('data:image/png;base64,{bg_b64}') no-repeat center center;
+            background-size: cover; filter: blur(7px) brightness(0.2); 
+            transform: scale(1.1); z-index: -1; 
+        }}
+        """
+    else:
+        bg_css = ".stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; }"
+
+    st.markdown(f"""
+        <style>
+        {bg_css}
+        header {{ visibility: hidden !important; }}
+        footer {{ visibility: hidden !important; }}
+        .block-container {{ padding-top: 5vh !important; padding-bottom: 0px !important; max-width: 100% !important; }}
+        div[data-testid="stVerticalBlock"] {{ gap: 0.6rem !important; }}
+        
+        div[data-testid="column"]:nth-child(2) {{
+            background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 30px 40px 35px 40px;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.8); margin-top: 2vh;
+        }}
+
+        .social-btn, .action-btn {{
+            display: flex; align-items: center; justify-content: center; width: 100%;
+            padding: 10px; margin-bottom: 5px; border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(30, 30, 30, 0.5);
+            color: #ffffff !important; text-decoration: none !important;
+            font-size: 13px; font-weight: 500; transition: all 0.3s ease; cursor: pointer;
+        }}
+        .social-btn:hover, .action-btn:hover {{ background: #000000 !important; border-color: #10a37f; color: #ffffff !important; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(16, 163, 127, 0.3);}}
+        .social-icon {{ width: 18px; height: 18px; margin-right: 10px; }}
+        
+        .divider {{ display: flex; align-items: center; margin: 15px 0 10px 0; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;}}
+        .divider::before, .divider::after {{ content: ""; flex: 1; border-bottom: 1px solid rgba(255, 255, 255, 0.15); }}
+        .divider:not(:empty)::before {{ margin-right: 15px; }}
+        .divider:not(:empty)::after {{ margin-left: 15px; }}
+        
+        div[data-baseweb="input"], div[data-baseweb="select"] > div {{ 
+            background-color: rgba(0, 0, 0, 0.5) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; 
+            border-radius: 8px !important; overflow: hidden !important; min-height: 42px !important;
+        }}
+        div[data-baseweb="input"] > div {{ background-color: transparent !important; border: none !important; }}
+        div[data-baseweb="input"] input {{ background-color: transparent !important; color: white !important; font-size: 14px !important; padding-left: 12px !important; }}
+        div[data-baseweb="input"]:focus-within {{ border-color: #10a37f !important; box-shadow: 0 0 0 1px #10a37f !important; }}
+        
+        .stButton > button[kind="primary"] {{ border-radius: 8px !important; transition: all 0.3s ease !important; }}
+        .stButton > button[kind="primary"]:hover {{ background: #000000 !important; transform: translateY(-2px) !important; box-shadow: 0 5px 15px rgba(16, 163, 127, 0.4) !important; }}
+        .stButton > button[kind="secondary"] {{ background: transparent !important; color: #94a3b8 !important; border: none !important; font-size: 12px !important; font-weight: 500 !important; padding: 0 !important; height: auto !important; margin-top: 5px; transition: color 0.3s ease !important; }}
+        .stButton > button[kind="secondary"]:hover {{ color: #10a37f !important; background: transparent !important; box-shadow: none !important; transform: none !important; }}
+        [data-testid="stSidebar"] {{ display: none !important; }}
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 🔴 RESTORED PROPER LOGIN RATIO (To fix the zoomed out look)
+    col1, col2, col3 = st.columns([1, 1.2, 1]) 
+    
+    with col2:
+        st.markdown(f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
+            {logo_html}
+            <h2 style='margin-bottom: 2px; margin-top: 0; font-weight: 800; font-size: 24px; color: #ffffff; letter-spacing: -0.5px; text-align: center;'>GSTU AI Ecosystem</h2>
+            <p style='color: #94a3b8; font-size: 13px; margin-bottom: 15px; text-align: center;'>Sign in to access elite agentic research tools</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.session_state.auth_mode == "login":
+            
+            # ☢️ NUCLEAR FIX FOR OAUTH PKCE BUG: Generate URLs EXACTLY ONCE per session!
+            if "oauth_urls" not in st.session_state:
+                st.session_state.oauth_urls = {
+                    "google": get_oauth_url("google"),
+                    "facebook": get_oauth_url("facebook")
+                }
+            
+            google_url = "?login_provider=google"
+            facebook_url = "?login_provider=facebook"
+            
+            st.markdown(f"""
+                <a href="{google_url}" target="_self" class="social-btn"><img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" class="social-icon"> Continue with Google</a>
+                <a href="{facebook_url}" target="_self" class="social-btn"><img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg" class="social-icon"> Continue with Facebook</a>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("<div class='divider'>or continue with email</div>", unsafe_allow_html=True)
+
+            login_email = st.text_input("Email", placeholder="name@gstu.edu.bd", label_visibility="collapsed")
+            login_password = st.text_input("Password", type="password", placeholder="Password", label_visibility="collapsed")
+            
+            if st.button("Sign In →", use_container_width=True, type="primary"):
+                success, msg = login_user(login_email, login_password)
+                if success: 
+                    active_session = supabase.auth.get_session()
+                    if active_session:
+                        cookie_controller.set("access_token", active_session.access_token, max_age=2592000)
+                        cookie_controller.set("refresh_token", active_session.refresh_token, max_age=2592000)
+                        cookie_controller.set("user_id", active_session.user.id, max_age=2592000)
+                        st.session_state.user_id = active_session.user.id
+                        st.session_state.username_id = active_session.user.id
+                    
+                    st.session_state.just_logged_in = True 
+                    st.session_state.user_email = login_email
+                    time.sleep(0.5)
+                    st.rerun()
+                else: 
+                    st.error(f"⚠️ {msg}")
+                
+            if st.button("Don't have an account? Sign up", use_container_width=True, type="secondary"):
+                st.session_state.auth_mode = "signup"
+                st.rerun()
+
+        else:
+            # SIGN UP FORM
+            st.markdown("<h4 style='text-align:center; font-size: 18px; margin-bottom: 15px; margin-top: 0; color: white;'>Create Account</h4>", unsafe_allow_html=True)
+            new_name = st.text_input("Full Name", placeholder="Full Name", label_visibility="collapsed")
+            new_email = st.text_input("Email Address", placeholder="name@gstu.edu.bd", label_visibility="collapsed")
+            new_dept = st.selectbox("Department", ["IR", "CSE", "EEE", "BBA", "Law"], label_visibility="collapsed")
+            new_pass = st.text_input("Create Password", type="password", placeholder="Password", label_visibility="collapsed")
+            
+            if st.button("Create Account", use_container_width=True, type="primary"):
+                if new_email and new_pass and new_name:
+                    try:
+                        res = supabase.auth.sign_up({
+                            "email": new_email, 
+                            "password": new_pass, 
+                            "options": {"data": {"full_name": new_name, "role": "Student", "department": new_dept}}
+                        })
+                        if res: 
+                            st.success("✅ Account created! Check your email to verify.")
+                            time.sleep(2)
+                            st.session_state.auth_mode = "login"
+                            st.rerun()
+                    except Exception as e: 
+                        st.error(f"⚠️ Sign Up Failed: {e}")
+                else: 
+                    st.warning("⚠️ Please fill all fields.")
+                
+            if st.button("← Back to Login", use_container_width=True, type="secondary"):
+                st.session_state.auth_mode = "login"
+                st.rerun()
+
+    # 🛑 Stop app execution here if not logged in
+    st.stop() 
+
+
+# =====================================================================
+# 🌐 MAIN DASHBOARD (User is successfully logged in)
+# =====================================================================
+
+# =====================================================================
+# ☀️ DYNAMIC LIGHT THEME OVERRIDE (Perfect Background Blur)
+# =====================================================================
+if st.session_state.get("theme") == "light":
+    # 🔴 We reuse the global dashboard background image string
+    dash_bg_light = dash_bg_b64 if dash_bg_b64 else "" 
+    
+    st.markdown(f"""
+        <style>
+        /* ☢️ ROOT VARIABLES */
+        :root {{
+            --primary-color: #10a37f !important;
+            --text-color: #0f172a !important;
+        }}
+        
+        /* 1. Global Light Background with BLURRED IMAGE OVERLAY */
+        .stApp {{ background-color: transparent !important; color: #0f172a !important; }}
+        .stApp::before {{
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            /* 🔴 MAGIC HERE: Light milky gradient over the original background image */
+            background: linear-gradient(rgba(248, 250, 252, 0.85), rgba(255, 255, 255, 0.95)), url('data:image/png;base64,{dash_bg_light}') center/cover no-repeat !important;
+            filter: blur(10px); 
+            z-index: -999; transform: scale(1.05);
+            display: block !important;
+        }}
+        
+        /* 2. Fix Sidebar & Popovers (Glassmorphism Light) */
+        [data-testid="stSidebar"], 
+        div[data-testid="stPopoverBody"], 
+        div[role="dialog"] {{
+            background-color: rgba(255, 255, 255, 0.65) !important;
+            backdrop-filter: blur(25px) !important;
+            -webkit-backdrop-filter: blur(25px) !important;
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            color: #0f172a !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05) !important;
+        }}
+        
+        /* 3. Chat Bubbles */
+        [data-testid="stChatMessage"] {{
+            background-color: rgba(255, 255, 255, 0.8) !important;
+            backdrop-filter: blur(15px) !important;
+            -webkit-backdrop-filter: blur(15px) !important;
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            color: #0f172a !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03) !important;
+        }}
+        
+        /* Text Color Fixes */
+        p, h1, h2, h3, h4, h5, h6, span, label, div {{ color: #0f172a !important; }}
+        
+        /* Input Fields */
+        div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {{
+            background-color: rgba(255, 255, 255, 0.85) !important;
+            border: 1px solid rgba(0, 0, 0, 0.2) !important;
+            color: #0f172a !important;
+        }}
+        div[data-baseweb="input"] input {{ color: #0f172a !important; }}
+        
+        /* 🔴 LIGHT THEME PREMIUM BUTTONS (Matching Dark Theme Quality) */
+        div[data-testid="stButton"] > button {{
+            background: linear-gradient(145deg, #ffffff, #f1f5f9) !important;
+            border: 1px solid rgba(16, 163, 127, 0.4) !important;
+            color: #0f172a !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }}
+        div[data-testid="stButton"] > button:hover {{
+            background: #ffffff !important;
+            border-color: #10a37f !important;
+            box-shadow: 0 8px 15px rgba(16, 163, 127, 0.2) !important;
+            color: #10a37f !important;
+            transform: translateY(-2px) !important;
+        }}
+        
+        /* Special Override for Primary Buttons in Light Mode */
+        div[data-testid="stButton"] > button[kind="primary"] {{
+            background: #10a37f !important;
+            color: #ffffff !important;
+        }}
+        div[data-testid="stButton"] > button[kind="primary"]:hover {{
+            background: #0f916f !important;
+            box-shadow: 0 8px 15px rgba(16, 163, 127, 0.4) !important;
+            color: #ffffff !important;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
+
+user_profile = get_user_profile(st.session_state.get('user_id'))
+
+
+# Ensure Core Identity Variables Exist
+user_id = st.session_state.get('user_id')
+current_uid = user_id
+st.session_state.username_id = user_id
+
+# 🔴 Restore Admin Role Check (BUG FIXED)
+ADMIN_EMAILS = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
+
+if "user_email" not in st.session_state:
+    local_user = st.session_state.users_db.get(current_uid, {})
+    st.session_state.user_email = local_user.get("email", "scholar@gstu.edu")
+
+is_real_admin = st.session_state.user_email in ADMIN_EMAILS
+
+if user_profile and user_profile.get('full_name'):
+    st.session_state.user_name = user_profile.get('full_name')
+else:
+    st.session_state.user_name = "Tashfin Yousuf" if is_real_admin else "Scholar"
+
+# ☢️ NUCLEAR FIX: Respect simulated role from Database!
+db_user = st.session_state.users_db.get(current_uid, {})
+saved_role = db_user.get("role")
+
+if saved_role:
+    st.session_state.user_role = saved_role
+else:
+    st.session_state.user_role = "Admin" if is_real_admin else "Student"
+
+# Sync with local JSON to fix sidebar glitches
+if current_uid in st.session_state.users_db:
+    st.session_state.users_db[current_uid]["role"] = st.session_state.user_role
+    st.session_state.users_db[current_uid]["name"] = st.session_state.user_name
+else:
+    st.session_state.users_db[current_uid] = {
+        "name": st.session_state.user_name,
+        "role": st.session_state.user_role,
+        "email": st.session_state.user_email,
+        "avatar": None
+    }
+
+# 🔴 Fire the Welcome Dialog!
+if st.session_state.get("just_logged_in", False):
+    welcome_dialog()
+
+
+# =====================================================================
+# ⚙️ PREMIUM ACCOUNT, BILLING, ADS & PRIVACY DIALOGS (DYNAMIC)
+# =====================================================================
+
+@st.dialog("⚙️ Account Settings & Subscription", width="large")
+def account_settings_dialog():
+    tab_profile, tab_system, tab_billing, tab_earn = st.tabs(["👤 Profile", "⚙️ System", "💎 Upgrade to Pro", "🎁 Earn Free Credits"])
+    
+    current_uid = st.session_state.username_id
+    
+    # 🔴 Fetch Live Data using API or Supabase Client
+    try:
+        user_res = supabase.table("user_profiles").select("*").eq("id", current_uid).execute()
+        user_data = user_res.data[0] if user_res.data else {"reward_credits": 0, "subscription_tier": "free"}
+        current_credits = user_data.get("reward_credits", 0)
+        sub_tier = user_data.get("subscription_tier", "free")
+    except:
+        current_credits = 0
+        sub_tier = "free"
+
+    with tab_profile:
+        st.markdown(f"**Name:** {st.session_state.user_name}")
+        st.markdown(f"**Email:** {st.session_state.user_email}")
+        st.markdown(f"**Role:** `{st.session_state.user_role}`")
+        st.markdown(f"**Balance:** 🪙 `{current_credits} AI Credits`")
+        
+
+    with tab_system:
+        st.markdown("### 🎨 Interface Theme")
+        
+        theme_choice = st.selectbox(
+            "Select Interface Mode", 
+            ["🌑 Dark Mode (Default)", "☀️ Light Mode (Premium)"],
+            index=0 if st.session_state.get("theme") != "light" else 1
+        )
+        
+        if theme_choice != st.session_state.get("theme_selector_val", "🌑 Dark Mode (Default)"):
+            st.session_state.theme_selector_val = theme_choice
+            st.session_state.theme = "light" if "Light" in theme_choice else "dark"
+            st.rerun() # Closes dialog and applies theme smoothly
+
+
+       # 👑 EXCLUSIVE ADMIN CONTROL PANEL
+        if st.session_state.get("user_email") in ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]:
+            st.markdown("<hr style='border-color: rgba(255,255,255,0.1); margin: 20px 0;'>", unsafe_allow_html=True)
+            st.markdown("### 👑 Admin Access")
+            
+            role_options = ["Admin", "Student"]
+            current_idx = 0 if st.session_state.get("user_role") == "Admin" else 1
+            
+            new_role = st.selectbox("Simulate Role", role_options, index=current_idx)
+            
+            if new_role != st.session_state.get("user_role"):
+                # 🔴 FIX 2: Save directly to JSON to prevent PGRST204 Supabase Error
+                st.session_state.user_role = new_role
+                current_uid = st.session_state.get("user_id")
+                if current_uid and current_uid in st.session_state.users_db:
+                    st.session_state.users_db[current_uid]["role"] = new_role
+                    with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
+                    
+                st.toast(f"✅ Role successfully changed to {new_role}", icon="👑")
+                time.sleep(0.5)
+                st.rerun()
+
+
+    with tab_billing:
+        st.markdown("### 💎 Unlock Limitless AI Power")
+        
+        # Check current status dynamically
+        sub_tier = check_subscription_status(current_uid)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("<div style='border: 1px solid #10a37f; padding: 15px; border-radius: 10px; margin-bottom: 15px;'><h4 style='color:#10a37f; margin:0;'>Basic Tier</h4><h2 style='margin:10px 0;'>$0 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Standard Rate Limits</p></div>", unsafe_allow_html=True)
+            if sub_tier == "free":
+                st.button("✅ Current Plan", disabled=True, use_container_width=True)
+            else:
+                st.button("Free Tier", disabled=True, use_container_width=True)
+                
+        with col2:
+            st.markdown("<div style='border: 1px solid #58A6FF; padding: 15px; border-radius: 10px; background: rgba(88,166,255,0.05); margin-bottom: 15px;'><h4 style='color:#58A6FF; margin:0;'>Pro Scholar</h4><h2 style='margin:10px 0;'>৳500 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Unlimited Premium AI</p></div>", unsafe_allow_html=True)
+            
+            if sub_tier != "premium" and sub_tier != "pro_scholar":
+                if st.button("💳 Pay via SSLCommerz", type="primary", use_container_width=True):
+                    with st.spinner("Connecting to Secure Gateway..."):
+                        
+                        # Generate the secure payment URL
+                        success, result = initiate_real_sslcommerz_payment(
+                            user_id=current_uid,
+                            user_name=st.session_state.user_name,
+                            user_email=st.session_state.user_email
+                        )
+                        
+                        if success:
+                            # 🚀 Redirect the user to the SSLCommerz Checkout Page
+                            st.markdown(f'<meta http-equiv="refresh" content="0; url={result}">', unsafe_allow_html=True)
+                        else:
+                            st.error(f"⚠️ Gateway Error: {result}")
+            else: 
+                st.button("✅ Pro Plan Active", disabled=True, use_container_width=True)
+                
+    with tab_earn:
+        st.markdown("### 🎁 Earn Credits for Premium Models")
+        st.success(f"🪙 Your Current Balance: **{current_credits} Credits**")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.info("📺 **Watch Sponsored Video** (+10)")
+            # 🔴 MONETAG REWARDED DIRECT LINK
+            monetag_link = f"https://monetag.com/rewarded_link_here?subid={current_uid}"
+            st.markdown(f"""
+                <a href="{monetag_link}" target="_blank" style="display: block; text-align: center; background-color: #10a37f; color: white; padding: 10px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+                    ▶️ Watch Ad to Earn
+                </a>
+            """, unsafe_allow_html=True)
+            st.caption("Credits are added automatically within 5 minutes of completing the ad.")
+                        
+        with c2:
+            st.info("📱 **Download & Try App** (+50)")
+            # 🔴 CPAGRIP OFFERWALL LINK
+            cpagrip_link = f"https://www.cpagrip.com/show.php?l=offerwall_link_here&tracking_id={current_uid}"
+            st.markdown(f"""
+                <a href="{cpagrip_link}" target="_blank" style="display: block; text-align: center; background-color: #0f172a; border: 1px solid #cbd5e1; color: white; padding: 10px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+                    📥 View Offers
+                </a>
+            """, unsafe_allow_html=True)
+
+
+# =====================================================================
+# 🔴 PROFILE PILL LAYOUT (Clean & Professional Style - NO WRAPPING)
+# =====================================================================
+# 🔴 Increased width to 18% so the name NEVER wraps or breaks!
+col_space, col_profile = st.columns([0.82, 0.18]) 
+with col_profile:
+    current_uid = st.session_state.get("username_id")
+    if current_uid not in st.session_state.users_db:
+        st.session_state.users_db[current_uid] = {}
+        
+    user_data = st.session_state.users_db.get(current_uid, {})
+    avatar_b64 = user_data.get("avatar")
+    final_avatar = avatar_b64 if avatar_b64 else logo_b64 
+    
+    tier = user_data.get("subscription_tier", "free")
+    tier_text = "⭐ Pro Scholar" if tier in ["pro_scholar", "premium"] else "🆓 Free Tier"
+    tier_color = "#58A6FF" if tier in ["pro_scholar", "premium"] else "#94a3b8"
+    
+    first_name = st.session_state.user_name.split()[0][:10] if st.session_state.get("user_name") else "Profile"
+    btn_label = f"👤 {first_name}"
+    
+    # 🔴 CSS to force the button text to stay on ONE single line
+    st.markdown("""
+        <style>
+        div[data-testid="column"]:nth-child(2) div[data-testid="stPopover"] > button {
+            white-space: nowrap !important;
+            min-width: 110px !important;
+            border-radius: 8px !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    with st.popover(btn_label, use_container_width=True):
+        if avatar_b64:
+            st.markdown(f"<div style='text-align: center;'><img src='data:image/jpeg;base64,{avatar_b64}' style='width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #10a37f; margin-bottom: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'></div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: center;'><img src='data:image/jpeg;base64,{logo_b64}' style='width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #10a37f; margin-bottom: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'></div>", unsafe_allow_html=True)
+            
+        st.markdown(f"<h4 style='text-align: center; margin: 0; padding: 0;'>{st.session_state.user_name}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: center; color: {tier_color}; margin: 5px 0 15px 0; font-size: 13px; font-weight: 600;'>{tier_text} • {st.session_state.user_role}</p>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.markdown("<p style='font-size: 13px; font-weight: 600; margin-bottom: 5px;'>📸 Change Profile Picture</p>", unsafe_allow_html=True)
+        uploaded_pic = st.file_uploader("", type=["png", "jpg", "jpeg"], key="profile_pic_upload_dialog", label_visibility="collapsed")
+        
+        if uploaded_pic is not None:
+            bytes_data = uploaded_pic.getvalue()
+            b64_str = base64.b64encode(bytes_data).decode()
+            if b64_str != st.session_state.users_db[current_uid].get("avatar"):
+                st.session_state.users_db[current_uid]["avatar"] = b64_str
+                try:
+                    with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
+                except Exception: pass
+                st.toast("✅ Profile picture updated successfully!")
+                time.sleep(0.5)
+                st.rerun()
+
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("⚙️ Account Settings", use_container_width=True): account_settings_dialog()
+        if st.button("🛡️ Privacy & Help", use_container_width=True): help_privacy_dialog()
+        
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("🚪 Logout", use_container_width=True, type="primary"):
+            try: supabase.auth.sign_out()
+            except: pass
+            for c_key in ["access_token", "refresh_token", "user_id", "gstu_uid"]:
+                try: cookie_controller.remove(c_key)
+                except: pass
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            time.sleep(0.5)
+            st.rerun()
+
 
 # 5. Premium Modals / Dialogs
 @st.dialog("⭐ Save Project To...")
@@ -598,33 +1213,39 @@ def bulk_move_dialog(selected_titles):
 def admin_dashboard_dialog():
     st.markdown("### 📊 Live System Overview")
     
-    # Fetch real data from Supabase
     try:
-        users_res = supabase.table("user_profiles").select("id", count="exact").execute()
-        chats_res = supabase.table("chat_history").select("id", count="exact").execute()
-        total_users = users_res.count if users_res.count else len(st.session_state.users_db)
-        total_chats = chats_res.count if chats_res.count else len(st.session_state.chat_history)
-    except:
-        total_users, total_chats = len(st.session_state.users_db), len(st.session_state.chat_history)
+        # Fetching Live Data from Supabase
+        users_count = supabase.table("user_profiles").select("id", count="exact").execute().count or 0
+        logs_res = supabase.table("ai_training_logs").select("topic_tag").execute()
+        chats_count = len(logs_res.data) if logs_res.data else 0
+        
+        # 🔴 Calculate Trending Topics
+        if logs_res.data:
+            import pandas as pd
+            df = pd.DataFrame(logs_res.data)
+            trending_topics = df['topic_tag'].value_content().head(5)
+        else:
+            trending_topics = []
+
+    except Exception as e:
+        users_count, chats_count, trending_topics = 0, 0, []
     
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👥 Total Users", total_users)
-    col2.metric("💬 Total AI Queries", total_chats)
-    col3.metric("🧠 Active Models", "10 Engines")
-    col4.metric("💰 Est. Revenue", f"${total_users * 1.5:.2f}") # Dummy revenue logic
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("👥 Total Users", users_count)
+    c2.metric("💬 Total Queries (Logged)", chats_count)
+    c3.metric("🧠 Active Models", "8 Engines")
+    c4.metric("💰 Est. Revenue", f"৳ {(users_count * 500)}") # Assuming 500 BDT per pro user
     
     st.markdown("---")
-    st.markdown("#### 📈 Weekly Token Usage & Engagement")
-    import pandas as pd
-    import numpy as np
-    chart_data = pd.DataFrame(np.random.randint(1000, 5000, size=(7, 2)), columns=["Free Tier (Tokens)", "Pro Tier (Tokens)"])
-    st.line_chart(chart_data, color=["#10a37f", "#58A6FF"])
+    st.markdown("#### 🔥 Top Trending Topics (For Model Training)")
     
-    st.markdown("---")
-    st.markdown("#### 👤 Recent Registered Users")
-    for uid, info in list(st.session_state.users_db.items())[:5]:
-        user_email = info.get('email', uid) 
-        st.markdown(f"- **{info.get('name', 'User')}** ({info.get('role', 'Student')}) ✉️ `{user_email}`")
+    if len(trending_topics) > 0:
+        for topic, count in trending_topics.items():
+            st.markdown(f"- **{topic}...** (`{count}` queries)")
+    else:
+        st.info("Not enough data to show trending topics yet.")
+        
+    st.markdown("*(All detailed query logs are safely stored in Supabase `ai_training_logs` table for future Fine-tuning).*")
 
 
 # 6. THE FLUID CSS BOSS
@@ -676,39 +1297,54 @@ vectorstore = load_central_database()
 def get_llm(model_id):
     if "gemini" in model_id.lower():
         google_api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-        return ChatGoogleGenerativeAI(model=model_id, temperature=0.1, google_api_key=google_api_key)
+        return ChatGoogleGenerativeAI(model=model_id, temperature=0.2, google_api_key=google_api_key)
         
-    elif "llama" in model_id.lower():
+    # 🔴 Qwen k Llama er sathe Groq engine e route kora holo
+    elif "llama" in model_id.lower() or "qwen" in model_id.lower():
         groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-        return ChatGroq(model_name=model_id, temperature=0.1, groq_api_key=groq_api_key)
+        return ChatGroq(model_name=model_id, temperature=0.3, groq_api_key=groq_api_key)
         
     elif model_id == "local-gpt4all":
         # 🔴 THE LOCAL OFFLINE ENGINE (Connects to GPT4All Server)
         return ChatOpenAI(
-            model_name="local-model", # Name doesn't matter for GPT4All
-            temperature=0.4, # 0.4 ensures it elaborates more creatively
-            openai_api_key="not-needed", # No real key needed for local
-            openai_api_base="http://localhost:4891/v1", # GPT4All's default port
+            model_name="local-model", 
+            temperature=0.4, 
+            openai_api_key="not-needed", 
+            openai_api_base="http://localhost:4891/v1", 
         )
         
     else:
-        # 🔴 OPENROUTER ENGINE
+        # 🔴 OPENROUTER ENGINE (For GPT-4o, Claude, DeepSeek)
         openrouter_key = os.getenv("OPENROUTER_API_KEY") or st.secrets.get("OPENROUTER_API_KEY")
         if not openrouter_key:
-            st.error("⚠️ OPENROUTER_API_KEY missing.")
+            st.error("⚠️ OPENROUTER_API_KEY missing in .streamlit/secrets.toml")
             st.stop()
+            
+        # 🔴 FIX 2: Added the missing RETURN statement!
+        return ChatOpenAI(
+            model_name=model_id,
+            temperature=0.2,
+            openai_api_key=openrouter_key,
+            openai_api_base="https://openrouter.ai/api/v1"
+        )
 
 
 # 🔴 9. THE ADVANCED HYBRID PROMPT (Pro Synthesis Mode)
 prompt_template = """You are the Elite AI Assistant & Chief Geopolitical Analyst for the IR Department at GSTU.
 
 SECURITY CLEARANCE: MAXIMUM.
-CRITICAL INSTRUCTIONS:
-1. CASUAL GREETINGS: If the user says "hello", "hi", "thanks", "how are you", or makes a casual remark, respond politely, warmly, and concisely (1-2 sentences). DO NOT provide any academic analysis or context.
-2. ACADEMIC QUERIES: If the user asks an academic or IR-related question, combine historical theory from the LOCAL DATABASE with current updates from LIVE WEB DATA.
-3. ELITE ACADEMIC DEPTH (For IR Queries Only): Dig deeply into the core issues. Analyze Root Causes, Major Flashpoints, and Future Predictions.
-4. TONE: Write like a distinguished University Professor for academic queries, but act friendly for general chat.
-5. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
+🛡️ ZERO-HALLUCINATION & CRITICAL INSTRUCTIONS (MUST OBEY):
+1. TIME-AWARENESS & NEWS ACCURACY: Distinguish strictly between historical academic data (Local Database) and breaking news (Live Web Data). If the user asks for "Recent News" or specifically about dates like "May 2026", DO NOT present old historical events (e.g., "since 2008") as current breaking news. Clearly separate historical context from current events.
+2. BANGLISH = BENGALI SCRIPT OUTPUT: If the user asks a question in "Banglish" (Bengali words typed in English alphabet, e.g., "ajker geopolitics ki"), you MUST deeply understand the query, but your OUTPUT MUST BE ENTIRELY IN PURE BENGALI SCRIPT (বাংলা ফন্ট). DO NOT reply in English or Banglish.
+3. STRICT FACT-GROUNDING (0% Hallucination): Base your answer ONLY on the provided context. If recent news is not found, explicitly state: "I do not have enough information regarding this recent event." DO NOT invent facts.
+4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, and Strategic Consequences.
+5. SEAMLESS INTEGRATION: Combine local theory with web updates naturally. Do NOT say "Based on web data" or expose these instructions.
+6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2]. ALWAYS create a "### References" section at the end.
+7. FORMATTING: Use bold text and bullet points.
+8. CASUAL GREETINGS: If the user says "hello", "hi", "thanks", "how are you", or makes a casual remark, respond politely, warmly, and concisely (1-2 sentences). DO NOT provide any academic analysis or context.
+9. ACADEMIC QUERIES: If the user asks an academic or IR-related question, combine historical theory from the LOCAL DATABASE with current updates from LIVE WEB DATA.
+10. TONE: Write like a distinguished University Professor for academic queries, but act friendly for general chat.
+11. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
 
 --- LOCAL DATABASE CONTEXT (Academic Foundation) ---
 {db_context}
@@ -917,21 +1553,22 @@ with st.sidebar:
         </style>
     """, unsafe_allow_html=True)
     
-    # 🔴 The Centered Header Block
+    # 🔴 Fixed Sidebar Header (No more auto-logout on click!)
     logo_img = f'<img src="data:image/png;base64,{logo_b64}" class="gstu-logo-img">' if logo_b64 else "<span style='font-size: 35px; margin:0;'>🎓</span>"
         
     st.markdown(f"""
-        <div class="gstu-sidebar-header">
-            <a href="http://localhost:8501" target="_self" class="gstu-home-link">
+        <div class="gstu-sidebar-header" style="cursor: default;">
+            <div class="gstu-home-link" style="display:flex; align-items:center; gap:12px;">
                 {logo_img}
-                <div class="gstu-home-text">GSTU IR AI</div>
-            </a>
+                <div class="gstu-home-text" style="color:white; font-size:24px; font-weight:900;">GSTU IR AI</div>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
     # Search bar
     search_q = st.text_input("Search", placeholder="🔍 Search projects...", label_visibility="collapsed")
     
+
     # 🔴 Perfect spacing before the action buttons
     st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
     
@@ -1000,7 +1637,7 @@ with st.sidebar:
 
     if st.session_state.selection_mode:
         selected_titles = [past["title"] for (cb_prefix, past, idx) in all_chats_flat if st.session_state.get(f"{_cb_key(cb_prefix, past['title'])}_{idx}", False)]
-        #st.markdown("<br>", unsafe_allow_html=True)
+    
         if selected_titles:
             n_sel = len(selected_titles)
             st.markdown(f"<div style='text-align:center;font-size:12px;opacity:0.7;margin-bottom:8px;'>☑️ <strong>{n_sel}</strong> chat{'s' if n_sel > 1 else ''} selected</div>", unsafe_allow_html=True)
@@ -1054,17 +1691,7 @@ with st.sidebar:
                         st.session_state.messages = past["messages"].copy()
                         st.session_state.active_chat_title = title
                         st.rerun()
-
-    # ==============================================================
-    # 🛡️ PRIVACY & SECURITY POLICY (Silicon Valley Standard)
-    # 🔴 PRIVACY & HELP CENTER BUTTON
-    # ==============================================================
     
-    st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🛡️ Privacy Policy & Help", use_container_width=True):
-        help_privacy_dialog()
-
 
 # 12. Main Chat Interface
 if not vectorstore:
@@ -1135,46 +1762,67 @@ if vectorstore and llm:
     # মডেল সিলেক্টর এখন ৩টা বাটনের ঠিক নিচে, একদম সেন্টারে!
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # 🔴 THE MODEL HUB (Visually Separated Tiers & Pre-emptive Locking)
+    current_tier = check_subscription_status(st.session_state.username_id)
     
-    # 🔴 THE MODEL HUB (User Selects Task-Specific Engine)
     m_col1, m_col2, m_col3 = st.columns([0.25, 0.5, 0.25])
     with m_col2:
         model_options = {
             "⚡ Fast Engine (Llama 3 - 8B)": "llama-3.1-8b-instant",
-            "💻 Offline Mode (GPT4All Local)": "local-gpt4all", # 🔴 NEW LOCAL ENGINE
-            "🌐 Web & Research (Gemini 2.5 Flash)": "gemini-2.5-flash",
-            "🐉 Qwen Core (Qwen 2.5 - 72B)": "qwen/qwen-2.5-72b-instruct",
-            "🎓 Deep Logic (Llama 3 - 70B)": "llama-3.3-70b-versatile",
-            "🧠 Adv. Analysis (Gemini 2.5 Pro)": "gemini-2.5-pro",
-            "🚀 GPT-4o (OpenAI Premium)": "openai/gpt-4o-2024-08-06",
-            "🔬 DeepSeek R1 (OpenRouter - Free)": "deepseek/deepseek-r1:free",
-            "🚀 GPT-4o Mini (OpenRouter)": "openai/gpt-4o-mini",
-            "🎨 Claude 3.5 Sonnet (Anthropic)": "anthropic/claude-3.5-sonnet"
+            "💻 Offline Mode (GPT4All Local)": "local-gpt4all", 
+            "🌐 Web Search (Gemini 2.5 Flash)": "gemini-2.5-flash",
+            "🔬 DeepSeek R1 (Free)": "deepseek/deepseek-r1:free",
+            "🚀 GPT-4o Mini (Fast)": "openai/gpt-4o-mini",
+            # --- PREMIUM MODELS ---
+            "💎 Deep Logic (Llama 3 - 70B)": "llama-3.3-70b-versatile",
+            "💎 Qwen Core (Qwen 2.5 - 72B)": "qwen/qwen-2.5-72b-instruct",
+            "💎 Adv. Analysis (Gemini 2.5 Pro)": "gemini-2.5-pro",
+            "💎 GPT-4o (OpenAI Premium)": "openai/gpt-4o-2024-08-06",
+            "💎 Claude 3.5 Sonnet (Anthropic)": "anthropic/claude-3.5-sonnet"
         }
         
         # Get current model name for default index
-        current_model_name = "⚡ Fast Engine (Llama 3 - 8B)" # fallback
+        current_model_name = "⚡ Fast Engine (Llama 3 - 8B)" 
         for key, val in model_options.items():
             if val == st.session_state.get("current_model"):
                 current_model_name = key
                 break
                 
+        # 🔴 Removed manual st.rerun() loop. Streamlit handles this natively!
         selected_model_ui = st.selectbox(
             "Select AI Engine",
             list(model_options.keys()),
             index=list(model_options.keys()).index(current_model_name) if current_model_name in model_options else 0,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            key="primary_model_selector"
         )
         
-        new_model_val = model_options[selected_model_ui]
+        # Update session state seamlessly without triggering infinite loops
+        st.session_state.current_model = model_options[selected_model_ui]
 
-        if new_model_val != st.session_state.current_model:
-            st.session_state.current_model = new_model_val
-            st.rerun()
+        # ==============================================================
+        # 🛑 PRE-EMPTIVE PREMIUM LOCK UI
+        # ==============================================================
+        is_locked = is_model_premium(st.session_state.current_model) and current_tier not in ["pro_scholar", "Admin"]
+        st.session_state.is_model_locked = is_locked
 
+        if is_locked:
+            st.markdown("""
+                <div style='border: 1px solid rgba(255, 75, 75, 0.4); background: rgba(255, 75, 75, 0.05); padding: 15px; border-radius: 12px; text-align: center; margin-top: 5px; box-shadow: 0 4px 15px rgba(255, 75, 75, 0.1);'>
+                    <h4 style='color: #ff4b4b; margin-top: 0; margin-bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 8px;'>🔒 Premium Engine Locked</h4>
+                    <p style='font-size: 13px; color: #cbd5e1; margin-bottom: 15px;'>Upgrade to <b>Pro Scholar</b> to unlock this advanced AI model and bypass all rate limits.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("💎 Upgrade to Pro Scholar", use_container_width=True, type="primary"):
+                account_settings_dialog()
+
+    # 🛡️ BULLETPROOF SAFEGUARD (Fixes the Red Screen Crash)
+    if "messages" not in st.session_state or st.session_state.messages is None:
+        st.session_state.messages = []
 
     for index, msg in enumerate(st.session_state.messages):
         if not isinstance(msg, dict) or "role" not in msg or "content" not in msg: continue
+
 
         avatar = "🧑‍💻" if msg["role"] == "user" else "✨"
         with st.chat_message(msg["role"], avatar=avatar):
@@ -1186,28 +1834,64 @@ if vectorstore and llm:
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                 act_cols = st.columns([0.08, 0.08, 0.08, 0.08, 0.08, 0.8], gap="small")
                 
-                # 🔊 Listen/Stop Toggle Button (Pure HTML/JS integration)
+                # 🔊 Listen/Stop Toggle Button (Bulletproof URI Encoded TTS)
                 with act_cols[0]:
                     import re
+                    import urllib.parse
+                    
                     is_bn_msg = bool(re.search(r'[\u0980-\u09FF]', msg["content"]))
-                    tts_lang = "bn-BD" if is_bn_msg else "en-US"
-                    safe_speech = json.dumps(msg["content"])
+                    tts_lang = "bn-IN" if is_bn_msg else "en-US" 
+                    
+                    # 🔴 NUCLEAR CLEANUP FOR TTS: Strip HTML, Links & Markdown completely!
+                    clean_text = re.sub(r'<[^>]+>', ' ', msg["content"]) # Removes HTML tags like <div>, <details>
+                    clean_text = re.sub(r'http\S+', '', clean_text) # Removes URLs
+                    clean_text = re.sub(r'[*#_~`>|\[\]()-]', '', clean_text) # Removes Markdown
+                    clean_text = clean_text.replace('\n', ' ').replace('"', "'").strip()
+                    
+                    # Encode safely
+                    safe_speech_uri = urllib.parse.quote(clean_text)
+                    
                     st.components.v1.html(
                         f"""
+                        <div style="display:flex; justify-content:center; align-items:center; height:100%;">
+                            <button onclick='toggleVoice()' title="Listen / Stop" style="background:transparent; border:none; cursor:pointer; font-size:18px; filter: grayscale(100%); outline:none; padding-top:2px;">🔊</button>
+                        </div>
                         <script>
                         function toggleVoice() {{
                             if (window.speechSynthesis.speaking) {{
                                 window.speechSynthesis.cancel();
                             }} else {{
-                                let msg = new SpeechSynthesisUtterance('{safe_speech}');
-                                msg.lang = '{tts_lang}'; // 🔴 Dynamically switches between Bengali and English
-                                window.speechSynthesis.speak(msg);
+                                let decodedText = decodeURIComponent('{safe_speech_uri}');
+                                let utterance = new SpeechSynthesisUtterance(decodedText);
+                                utterance.lang = '{tts_lang}'; 
+                                
+                                let voices = window.speechSynthesis.getVoices();
+                                for(let i = 0; i < voices.length; i++) {{
+                                    if(voices[i].lang === '{tts_lang}' || voices[i].lang.includes('{tts_lang.split('-')[0]}')) {{
+                                        utterance.voice = voices[i];
+                                        break;
+                                    }}
+                                }}
+                                window.speechSynthesis.speak(utterance);
                             }}
                         }}
+                        window.speechSynthesis.getVoices();
                         </script>
-                        <button onclick="toggleVoice()" title="Listen / Stop" style="background:transparent; border:none; cursor:pointer; font-size:16px; padding:0; margin:0; filter: grayscale(100%);">🔊</button>
-                        """, height=25
+                        """, height=30
                     )
+
+                # =================================
+                # 📝 AI LEARNING FEEDBACK FORM
+                # =================================
+                @st.dialog("🧠 Help GSTU AI Learn")
+                def feedback_dialog(msg_index):
+                    st.markdown("### Why did you dislike this response?")
+                    feedback_reason = st.text_area("Provide specific details to train the model:", placeholder="e.g., The geopolitical facts were outdated...")
+                    if st.button("Submit Feedback to Core", type="primary", use_container_width=True):
+                        # Phase 2: Save to 'ai_training_logs' in Supabase
+                        st.success("✅ Feedback securely logged! The Zenith routing engine will adjust future responses.")
+                        time.sleep(1.5)
+                        st.rerun()
                     
                 with act_cols[1]: 
                     if st.button("👍", key=f"up_{index}", help="Good response"): st.toast("✅ Positive feedback logged.")
@@ -1233,18 +1917,19 @@ if vectorstore and llm:
 
 
     # 🔴 FUNCTIONAL MULTIMODAL BOX (Camera, Files, Voice)
+    if "uploaded_files_cache" not in st.session_state:
+        st.session_state.uploaded_files_cache = []
+
     with st.expander("📎 Attach Files, Camera & Voice Notes"):
         tab_file, tab_cam, tab_voice = st.tabs(["📂 Files & Gallery", "📸 Camera", "🎤 Voice Note"])
         
-        # 🔴 RESTORED: File Uploader Box
+        # 🔴 File Uploader Box
         with tab_file:
             st.markdown("### 📄 Upload Documents for Analysis")
             up_files = st.file_uploader("Upload PDFs or Images (Max 10MB)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
             if up_files:
+                st.session_state.uploaded_files_cache = up_files
                 st.success(f"✅ {len(up_files)} file(s) attached and ready for analysis.")
-
-        MAX_UPLOAD_MB = 10
-        MAX_AVATAR_MB = 2
 
         def validate_file_size(file_obj, max_mb: float) -> bool: ...
 
@@ -1255,104 +1940,107 @@ if vectorstore and llm:
                     data[:4] in (b"GIF8",))           # GIF
                 
         with tab_cam:
-            cam_pic = st.camera_input("Take a photo using webcam/phone")
+            cam_pic = st.camera_input("Take a photo using webcam/phone", key="camera_input_box")
             if cam_pic: 
+                st.session_state.uploaded_files_cache = [cam_pic]
                 st.success("✅ Photo captured and attached.")
                 
-        with tab_voice:
-            voice_data = st.audio_input("Record your Voice Command")
-        
         # Initialize persistent voice draft state
-        if "voice_draft" not in st.session_state:
-            st.session_state.voice_draft = ""
+        with tab_voice:
+            voice_data = st.audio_input("Record your Voice Command", key="voice_input_box")
             
-        if voice_data and not st.session_state.voice_draft:
-            if st.button("🎙️ Process Audio", use_container_width=True):
-                with st.spinner("Translating voice to text..."):
-                    try:
-                        # সাময়িকভাবে অডিও ফাইলটি লোকাল ড্রাইভে সেভ করা
-                        # FIXED
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                            tmp.write(voice_data.getbuffer())
-                            temp_audio_path = tmp.name  # Unique per invocation
-                        
-                        # ফাইল সাইজ মেপে মেগাবাইটে কনভার্ট করা
-                        file_size_mb = os.path.getsize(temp_audio_path) / (1024 * 1024)
-                        MAX_LOCAL_SIZE_MB = 5.0 # ৫ মেগাবাইটের নিচে হলে লোকাল প্রসেস হবে
-                        
-                        transcription = ""
-                        
-                        # === ১. লোকাল ইঞ্জিন রান (ছোট ফাইলের জন্য) ===
-                        if file_size_mb <= MAX_LOCAL_SIZE_MB:
-                            st.toast(f"🔒 Local Engine Active ({file_size_mb:.2f} MB). Processing offline...", icon="🔌")
-                            try:
-                                from faster_whisper import WhisperModel
-                                # CPU এর জন্য int8 অপ্টিমাইজড করে লোড করা হলো যাতে ক্র্যাশ না করে
-                                model = WhisperModel("base", device="cpu", compute_type="int8")
-                                segments, info = model.transcribe(temp_audio_path, beam_size=5)
-                                transcription = " ".join([segment.text for segment in segments])
-                                st.toast("💡 Processed via: Local (faster-whisper)", icon="✅")
-                            except ImportError:
-                                st.error("⚠️ Local faster-whisper not configured properly. Falling back to Cloud API...")
-                                file_size_mb = 999 # ফোর্সড ক্লাউড ফলব্যাক
-                                
-                        # === ২. ক্লাউড ইঞ্জিন রান (বড় ফাইলের জন্য বা ফলব্যাক) ===
-                        if file_size_mb > MAX_LOCAL_SIZE_MB:
-                            st.toast(f"⚡ Cloud Engine Active. Routing to Groq Cloud API...", icon="🌐")
-                            from groq import Groq
+            if voice_data and not st.session_state.voice_draft:
+                if st.button("🎙️ Process Audio", use_container_width=True):
+                    with st.spinner("Translating voice to text..."):
+                        try:
+                            # সাময়িকভাবে অডিও ফাইলটি লোকাল ড্রাইভে সেভ করা
+                            # FIXED
+                            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                                tmp.write(voice_data.getbuffer())
+                                temp_audio_path = tmp.name  # Unique per invocation
                             
-                            groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-                            if not groq_api_key:
-                                st.error("⚠️ GROQ_API_KEY missing! Cannot process via cloud.")
+                            # ফাইল সাইজ মেপে মেগাবাইটে কনভার্ট করা
+                            file_size_mb = os.path.getsize(temp_audio_path) / (1024 * 1024)
+                            MAX_LOCAL_SIZE_MB = 5.0 # ৫ মেগাবাইটের নিচে হলে লোকাল প্রসেস হবে
+                            
+                            transcription = ""
+                            
+                            # === ১. লোকাল ইঞ্জিন রান (ছোট ফাইলের জন্য) ===
+                            if file_size_mb <= MAX_LOCAL_SIZE_MB:
+                                st.toast(f"🔒 Local Engine Active ({file_size_mb:.2f} MB). Processing offline...", icon="🔌")
+                                try:
+                                    from faster_whisper import WhisperModel
+                                    # CPU এর জন্য int8 অপ্টিমাইজড করে লোড করা হলো যাতে ক্র্যাশ না করে
+                                    model = WhisperModel("base", device="cpu", compute_type="int8")
+                                    segments, info = model.transcribe(temp_audio_path, beam_size=5)
+                                    transcription = " ".join([segment.text for segment in segments])
+                                    st.toast("💡 Processed via: Local (faster-whisper)", icon="✅")
+                                except ImportError:
+                                    st.error("⚠️ Local faster-whisper not configured properly. Falling back to Cloud API...")
+                                    file_size_mb = 999 # ফোর্সড ক্লাউড ফলব্যাক
+                                    
+                            # === ২. ক্লাউড ইঞ্জিন রান (বড় ফাইলের জন্য বা ফলব্যাক) ===
+                            if file_size_mb > MAX_LOCAL_SIZE_MB:
+                                st.toast(f"⚡ Cloud Engine Active. Routing to Groq Cloud API...", icon="🌐")
+                                from groq import Groq
+                                
+                                groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+                                if not groq_api_key:
+                                    st.error("⚠️ GROQ_API_KEY missing! Cannot process via cloud.")
+                                else:
+                                    client = Groq(api_key=groq_api_key)
+                                    with open(temp_audio_path, "rb") as audio_file:
+                                        transcription = client.audio.transcriptions.create(
+                                            file=(temp_audio_path, audio_file.read()),
+                                            model="whisper-large-v3",
+                                            response_format="text"
+                                        ).strip()
+                                    st.toast("💡 Processed via: Cloud (Groq Whisper API)", icon="🚀")
+                                    
+                            # সাময়িকভাবে তৈরি করা অডিও ফাইলটি ডিলিট করে ক্লিন করা
+                            if os.path.exists(temp_audio_path):
+                                os.remove(temp_audio_path)
+                                
+                            # টেক্সট ড্রাফট হিসেবে সেভ করে স্ক্রিন রিফ্রেশ দেওয়া (রিভিউ এর জন্য)
+                            if transcription:
+                                st.session_state.voice_draft = transcription.strip()
+                                st.rerun() 
                             else:
-                                client = Groq(api_key=groq_api_key)
-                                with open(temp_audio_path, "rb") as audio_file:
-                                    transcription = client.audio.transcriptions.create(
-                                        file=(temp_audio_path, audio_file.read()),
-                                        model="whisper-large-v3",
-                                        response_format="text"
-                                    ).strip()
-                                st.toast("💡 Processed via: Cloud (Groq Whisper API)", icon="🚀")
+                                st.error("⚠️ Failed to transcribe audio. No text recovered.")
                                 
-                        # সাময়িকভাবে তৈরি করা অডিও ফাইলটি ডিলিট করে ক্লিন করা
-                        if os.path.exists(temp_audio_path):
-                            os.remove(temp_audio_path)
+                        except Exception as e:
+                            if os.path.exists(temp_audio_path):
+                                os.remove(temp_audio_path)
+                            st.error(f"⚠️ Audio processing pipeline error: {str(e)}")
                             
-                        # টেক্সট ড্রাফট হিসেবে সেভ করে স্ক্রিন রিফ্রেশ দেওয়া (রিভিউ এর জন্য)
-                        if transcription:
-                            st.session_state.voice_draft = transcription.strip()
-                            st.rerun() 
-                        else:
-                            st.error("⚠️ Failed to transcribe audio. No text recovered.")
-                            
-                    except Exception as e:
-                        if os.path.exists(temp_audio_path):
-                            os.remove(temp_audio_path)
-                        st.error(f"⚠️ Audio processing pipeline error: {str(e)}")
-                        
-        # Render the Review & Edit Box if a draft exists
-        if st.session_state.get("voice_draft"):
-            st.info("📝 Review and edit your transcribed text before sending:")
-            edited_text = st.text_area("Transcribed Command:", value=st.session_state.voice_draft, height=100)
-            
-            col_v1, col_v2 = st.columns(2)
-            with col_v1:
-                if st.button("❌ Discard", use_container_width=True):
-                    st.session_state.voice_draft = ""
-                    st.rerun()
-            with col_v2:
-                if st.button("🚀 Send to Agent", use_container_width=True, type="primary"):
-                    st.session_state.quick_query = edited_text
-                    st.session_state.voice_draft = "" # Clear draft state
-                    st.rerun()
+            # Render the Review & Edit Box if a draft exists
+            if st.session_state.get("voice_draft"):
+                st.info("📝 Review and edit your transcribed text before sending:")
+                edited_text = st.text_area("Transcribed Command:", value=st.session_state.voice_draft, height=100, key="voice_draft_editor")
+                
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    if st.button("❌ Discard", use_container_width=True):
+                        st.session_state.voice_draft = ""
+                        st.rerun()
+                with col_v2:
+                    if st.button("🚀 Send to Agent", use_container_width=True, type="primary"):
+                        st.session_state.quick_query = edited_text
+                        st.session_state.voice_draft = "" 
+                        st.rerun()
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+
+    # 🔴 1. Smart Input Interceptor (Disables input if premium model is locked)
+    temp_query = st.chat_input(
+        "Message GSTU Assistant..." if not st.session_state.get("is_model_locked", False) else "🔒 Model Locked. Please upgrade to use.", 
+        disabled=st.session_state.get("is_model_locked", False)
+    )
     
-    # 🔴 1. Smart Input Interceptor (ভয়েস কমান্ড রিসিভ করবে)
-    temp_query = st.chat_input("Message GSTU Assistant...")
     if st.session_state.get("quick_query"):
         user_query = st.session_state.quick_query
-        st.session_state.quick_query = None # Clear after catching
+        st.session_state.quick_query = None 
     else:
         user_query = temp_query
 
@@ -1372,29 +2060,21 @@ if vectorstore and llm:
                 elif "image" in f.type:
                     context_from_files += f"\n[User attached image: {f.name}]\n"
 
-    
-    # =====================================================================
-    # 📝 AI LEARNING FEEDBACK FORM
-    # =====================================================================
-    @st.dialog("🧠 Help Astra Core Learn")
-    def feedback_dialog(msg_index):
-        st.markdown("### Why did you dislike this response?")
-        feedback_reason = st.text_area("Provide specific details to train the model:", placeholder="e.g., The geopolitical facts were outdated...")
-        if st.button("Submit Feedback to Core", type="primary", use_container_width=True):
-            # Phase 2: Save to 'ai_training_logs' in Supabase
-            st.success("✅ Feedback securely logged! The Zenith routing engine will adjust future responses.")
-            time.sleep(1.5)
-            st.rerun()
-
 
     # =====================================================================
-    # 💬 CHAT INPUT & HISTORY BUG FIX
+    # 💬 CHAT INPUT & HISTORY BUG FIX (Now with Cloud Sync!)
     # =====================================================================
     if user_query:
-        # 🔴 CREATE NEW HISTORY INSTANCE IF NONE EXISTS
+        # 🔴 CREATE NEW HISTORY INSTANCE & CLOUD SESSION
         if not st.session_state.active_chat_title:
             new_title = user_query[:25] + "..."
             st.session_state.active_chat_title = new_title
+            
+            # 1. Cloud Session Create
+            session_id = create_new_session(st.session_state.username_id, new_title)
+            st.session_state.current_session_id = session_id
+            
+            # 2. Local JSON Update (To keep the Sidebar UI happy)
             st.session_state.chat_history.insert(0, {
                 "title": new_title,
                 "folder": None,
@@ -1402,6 +2082,11 @@ if vectorstore and llm:
             })
 
         st.session_state.messages.append({"role": "user", "content": user_query})
+        
+        # 🔴 SAVE TO SUPABASE CLOUD (User Message)
+        if st.session_state.get('current_session_id'):
+            save_message_to_cloud(st.session_state.current_session_id, "user", user_query)
+
         with st.chat_message("user", avatar="👨🏻‍💻"):
             # ChatGPT Style Expander for long prompts (> 300 chars)
             if len(user_query) > 300:
@@ -1414,26 +2099,30 @@ if vectorstore and llm:
         
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         latest_q = st.session_state.messages[-1]["content"]
-        res_text = None  
+        res_text = None 
 
+        # ==============================================================
+        # ⏱️ RATE LIMIT GATEKEEPER 
+        # ==============================================================
+        can_proceed, limit_msg = check_rate_limit(st.session_state.username_id, current_tier)
+        
+        if not can_proceed:
+            with st.chat_message("assistant", avatar="🚫"):
+                st.error(limit_msg)
+                if st.button("💎 Unlock Unlimited Queries", use_container_width=True):
+                    account_settings_dialog()
+            st.session_state.messages.pop()
+            st.stop()
+
+        # ==============================================================
+        # 🟢 THE SINGLE, UNIFIED CHAT BUBBLE (Zero Duplicates!)
+        # ==============================================================
         with st.chat_message("assistant", avatar="✨"):
             creator_keywords = ["created", "made", "inventor", "founded", "developer", "creator", "founder", "built"]
-        
-        # 🧠 SMART ROUTER ENGINE (Auto-detects course from user query)
-            def route_query(query):
-                q = query.lower()
-                if any(x in q for x in ["research", "methodology", "social", "hypothesis", "weak points"]): return "IR-210"
-                elif any(x in q for x in ["foreign policy", "diplomacy", "policy"]): return "IR-202"
-                elif any(x in q for x in ["french", "france", "translate", "alphabet"]): return "French"
-                elif any(x in q for x in ["intro", "theory", "realism"]): return "IR-200"
-                else: return "General"
-            
-            detected_course = route_query(latest_q)
-            # 🔴 UPDATE 1: Expanded greetings to catch "hey there", "what's up" etc.
             casual_greetings = ["hi", "hello", "hey", "hallo", "helo", "hi there", "hey there", "what's up", "হ্যালো", "হাই", "কেমন আছো", "কেমন আছেন"]
-            
             latest_q_lower = latest_q.strip().lower()
 
+            # --- 1. EASTER EGG & GREETINGS (Instant Response) ---
             if any(kw in latest_q_lower for kw in creator_keywords):
                 res_text = (
                     "The inventor and head developer of this AI model is **Tashfin Yousuf**.<br><br>"
@@ -1444,40 +2133,29 @@ if vectorstore and llm:
                 )
                 st.markdown(res_text, unsafe_allow_html=True)
             
-            # 🔴 UPDATE 2: Smart Greeting Bypass (Checks if it STARTS with a greeting)
             elif any(latest_q_lower.startswith(g) for g in casual_greetings):
                 res_text = "Hello! 👋 I am the Elite GSTU IR AI Assistant. How can I help you with your academic research, theories, syllabus, or geopolitical analysis today?"
                 st.markdown(res_text)
 
-            # 🔴 === 🔌 SMART OFFLINE ENGINE (Powered by GPT4All) === 🔴
+
+            # --- 2. 🔌 SMART OFFLINE ENGINE ---
             elif (lambda: __import__("socket").setdefaulttimeout(2) or __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM).connect_ex(("8.8.8.8", 53)) != 0)():
-                st.toast("⚠️ Offline Mode Active. Local AI Engine intercepting...", icon="🔌")
-                
-                # Ensure the user has actually selected the Local LLM, otherwise clouds will crash
                 if st.session_state.current_model != "local-gpt4all":
-                    res_text = "🔌 **Internet connection lost.** \n\nTo generate intelligent answers offline, please select **'Offline Mode (GPT4All Local)'** from the AI Engine dropdown menu above."
+                    res_text = "🔌 **Internet connection lost.** \n\nPlease select **'Offline Mode (GPT4All Local)'** from the AI Engine dropdown menu to continue offline."
                     st.error(res_text)
                 else:
                     with st.spinner("Analyzing locally with GPT4All..."):
                         try:
-
-                            # 1. Fetch Local Data (STRICT ROUTING)
                             def route_query(query):
                                 q = query.lower()
                                 if any(x in q for x in ["research", "methodology", "social", "hypothesis"]): return "IR-210"
-                                elif any(x in q for x in ["foreign policy", "diplomacy", "policy"]): return "IR-202"
+                                elif any(x in q for x in ["foreign policy", "diplomacy", "policy", "fpa"]): return "IR-202"
                                 elif any(x in q for x in ["french", "france", "translate", "alphabet"]): return "French"
                                 elif any(x in q for x in ["intro", "theory", "realism"]): return "IR-200"
                                 else: return "General"
                             
                             detected_course = route_query(latest_q)
-                            
-                            # STRICT FILTER: NO FALLBACK ALLOWED
-                            if detected_course != "General":
-                                st.toast(f"🔌 Offline: Routed strictly to {detected_course}", icon="🧠")
-                                db_context, db_docs = search_context(latest_q, active_course=detected_course)
-                            else:
-                                db_context, db_docs = search_context(latest_q, active_course=None)
+                            db_context, db_docs = search_context(latest_q, active_course=detected_course if detected_course != "General" else None)
                             
                             db_sources = {}
                             if db_docs:
@@ -1486,106 +2164,55 @@ if vectorstore and llm:
                                     page = doc.metadata.get('page')
                                     if src_name not in db_sources: db_sources[src_name] = set()
                                     if page is not None: db_sources[src_name].add(str(page + 1))
-                                    
-                            else:
-                                db_context, db_docs = search_context(latest_q, active_course=None)
-                            
-                            db_sources = {}
-                            for doc in db_docs:
-                                src_name = os.path.basename(doc.metadata.get('source', 'Unknown'))
-                                page = doc.metadata.get('page')
-                                if src_name not in db_sources: db_sources[src_name] = set()
-                                if page is not None: db_sources[src_name].add(str(page + 1))
 
-                            # =====================================================================
-                            # 🧠 SMART LANGUAGE & CULTURAL ROUTER 
-                            # =====================================================================
-                            import re
                             is_bengali = bool(re.search(r'[\u0980-\u09FF]', latest_q))
+                            sys_inst = "তুমি হচ্ছো GSTU এর IR ডিপার্টমেন্টের এলিট এআই। শুধুমাত্র বাংলায় বিস্তারিত উত্তর দাও।" if is_bengali else "You are the Elite GSTU AI Assistant for IR. Provide a detailed, academic response in English."
                             
-                            if is_bengali:
-                                # 🇧🇩 Bengali Academic Persona
-                                system_instruction = """তুমি হচ্ছো GSTU (গোপালগঞ্জ বিজ্ঞান ও প্রযুক্তি বিশ্ববিদ্যালয়) এর ইন্টারন্যাশনাল রিলেশনস (IR) ডিপার্টমেন্টের একজন এলিট এআই অ্যাসিস্ট্যান্ট। 
-তোমার প্রধান কাজ হলো শুধুমাত্র নিচের কনটেক্সটের ওপর ভিত্তি করে একটি অত্যন্ত বিস্তারিত এবং অ্যাকাডেমিক উত্তর প্রদান করা।
-
-CRITICAL INSTRUCTIONS (BANGLA):
-১. উত্তরটি অবশ্যই ১০০% বিশুদ্ধ, প্রমিত এবং ফর্মাল বাংলায় হতে হবে। কোনোভাবেই ইংরেজি থেকে আক্ষরিক বা যান্ত্রিক অনুবাদ (Robotic translation) করা যাবে না।
-২. বাংলাদেশের লোকাল টোন এবং অ্যাকাডেমিক স্টাইল বজায় রাখবে।
-৩. পয়েন্ট এবং বোল্ড টেক্সট ব্যবহার করে উত্তরটি সুন্দরভাবে সাজাবে।
-৪. এক লাইনের ছোট উত্তর দেওয়া সম্পূর্ণ নিষেধ। বিস্তারিত ব্যাখ্যা করবে।"""
-
-                            else:
-                                # 🇬🇧 English Academic Persona
-                                system_instruction = """You are the Elite GSTU AI Assistant for the International Relations (IR) Department. 
-Your task is to provide a comprehensive, highly detailed, and academic response based ONLY on the provided context.
-
-CRITICAL INSTRUCTIONS (ENGLISH):
-1. EXPAND & ELABORATE: Provide a detailed, multi-paragraph explanation. Do NOT give short one-liner answers.
-2. STRUCTURE: Use bullet points and bold text to structure your answer professionally.
-3. TONE: Maintain a highly academic and analytical tone suitable for university-level research."""
-
-                            # 🔴 Injecting the dynamic instruction into the final prompt
-                            offline_prompt = f"""{system_instruction}
-
-Context:
-{db_context[:800]} 
-
-User Question: {latest_q}
-
-Detailed Analysis:
-"""
+                            offline_prompt = f"{sys_inst}\n\nContext:\n{db_context[:1200]}\n\nQuestion: {latest_q}\n\nAnalysis:"
                             
                             response = llm.invoke(offline_prompt)
                             answer = str(response.content).strip()
                             
-                            # 3. Maintain Beautiful Source UI
                             source_text = "\n\n<details><summary><b>📚 View Local Sources</b></summary>\n<ul>"
                             for src, pages in db_sources.items():
-                                if pages:
-                                    sorted_pages = sorted(list(pages), key=lambda x: int(x) if x.isdigit() else str(x))
-                                    page_str = ", ".join(sorted_pages)
-                                    source_text += f"<li>📄 {src} <i>(Page: {page_str})</i></li>"
-                                else: source_text += f"<li>📄 {src}</li>"
+                                page_str = ", ".join(sorted(list(pages), key=lambda x: int(x) if x.isdigit() else str(x))) if pages else ""
+                                source_text += f"<li>📄 {src} {f'<i>(Page: {page_str})</i>' if page_str else ''}</li>"
                             source_text += "</ul></details>"
                             
                             res_text = f"🔌 **[Offline Mode Active]**\n\n{answer}{source_text}"
                             st.markdown(res_text, unsafe_allow_html=True)
                             
                         except Exception as e:
-                            res_text = f"⚠️ **GPT4All Connection Error:** Please ensure GPT4All app is running in the background and 'Enable Web Server' is ON in its settings. \n\nError details: `{str(e)}`"
+                            res_text = f"⚠️ **GPT4All Error:** `{str(e)}`"
                             st.error(res_text)
 
 
-            # 🌐 === ONLINE CLOUD ENGINE === 🌐
+            # --- 3. 🌐 ONLINE CLOUD ENGINE (Only 1 Spinner, Bullet-Fast!) ---
             else:
-                with st.spinner(f"Analyzing with {'Deep Think (70B)' if '70b' in st.session_state.current_model else 'Fast (8B)'}..."):
-                
-                        import re
+                with st.spinner("💭 Analyzing & Fetching Data..."):
+                    try:
                         is_bengali = bool(re.search(r'[\u0980-\u09FF]', latest_q))
                         active_model = st.session_state.current_model
                         
-                        # 🔴 SMART AUTO-ROUTING
+                        # Auto-Route Bengali to Gemini
                         if is_bengali and "llama" in active_model.lower():
                             st.toast("🔄 Llama doesn't support Bengali perfectly. Auto-routing to Gemini...", icon="⚡")
                             google_api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
                             from langchain_google_genai import ChatGoogleGenerativeAI
-                            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2, google_api_key=google_api_key)
+                            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1, google_api_key=google_api_key)
                         else:
                             llm = get_llm(active_model)
                 
-                        # 🔴 THE HYBRID RAG MAGIC STARTS HERE
-                        # 1. Get Data from Local DB (Books/PDFs) using STRICT ROUTER
+                        # 1. DB Search
                         def route_query(query):
                             q = query.lower()
-                            if any(x in q for x in ["research", "methodology", "social", "hypothesis"]): return "IR-210"
+                            if any(x in q for x in ["research", "methodology", "social", "hypothesis", "weak points"]): return "IR-210"
                             elif any(x in q for x in ["foreign policy", "diplomacy", "policy"]): return "IR-202"
                             elif any(x in q for x in ["french", "france", "translate", "alphabet"]): return "French"
                             elif any(x in q for x in ["intro", "theory", "realism"]): return "IR-200"
                             else: return "General"
                         
                         detected_course = route_query(latest_q)
-                        
-                        # STRICT FILTER: NO FALLBACK TO RANDOM COURSES
                         if detected_course != "General":
                             st.toast(f"🔍 Auto-Routed to strict {detected_course} context...", icon="🧠")
                             db_context, db_docs = search_context(latest_q, active_course=detected_course)
@@ -1600,288 +2227,231 @@ Detailed Analysis:
                                 if src_name not in db_sources: db_sources[src_name] = set()
                                 if page is not None: db_sources[src_name].add(str(page + 1))
 
-                        # 2. Smart Trigger for Live Web Search
-                        rt_keywords = [
-                            "current", "latest", "now", "today", "recent", "update", "updates", "2024", "2025", "2026", 
-                            "news", "geopolitics", "situation", "war", "conflict", "crisis",
-                            "বর্তমান", "সাম্প্রতিক", "আজকের", "এখনকার", "খবর", "নিউজ", "পরিস্থিতি", "অবস্থা", "আপডেট"
-                        ]
+                        # 2. Web Search
+                        rt_keywords = ["current", "latest", "now", "today", "recent", "update", "updates", "2024", "2025", "2026", "news", "geopolitics", "situation", "war", "conflict", "crisis", "বর্তমান", "সাম্প্রতিক", "আজকের", "এখনকার", "খবর", "নিউজ", "পরিস্থিতি", "অবস্থা", "আপডেট"]
                         needs_web = any(kw in latest_q.lower() for kw in rt_keywords)
-
                         web_context = "No live web search triggered."
                         web_links = []
 
                         if needs_web:
-                            # 🌐 TAVILY ENGINE TRIGGERED (The Free AI Search)
                             tavily_key = os.getenv("TAVILY_API_KEY") or st.secrets.get("TAVILY_API_KEY")
-                            
                             if not tavily_key:
                                 st.error("⚠️ TAVILY_API_KEY is missing in .env! Get it for free at tavily.com")
                                 st.stop()
-                                
-                            with st.spinner("🌐 Fetching live global data..."):
-                                try:
-                                    from tavily import TavilyClient
-                                    tavily_client = TavilyClient(api_key=tavily_key)
-                
-                                # Advanced search targets high-quality sources and digs deeper
-                                    tavily_res = tavily_client.search(
-                                        query=latest_q, 
-                                        search_depth="advanced", 
-                                        max_results=8,
-                                        include_answer=True,
+                            try:
+                                from tavily import TavilyClient
+                                tavily_client = TavilyClient(api_key=tavily_key)
+                                tavily_res = tavily_client.search(
+                                    query=latest_q, search_depth="advanced", max_results=8, include_answer=True,
+                                    exclude_domains=["instagram.com", "facebook.com", "x.com", "twitter.com", "reddit.com", "quora.com", "tiktok.com", "blog.greeden.me"]
+                                )
+                                web_context = f"Tavily AI Summary: {tavily_res.get('answer', '')}\n\n"
+                                for r in tavily_res.get('results', []):
+                                    web_context += f"Source: {r.get('title', 'Web')}\nSnippet: {r.get('content', '')}\n\n"
+                                    web_links.append(r.get('url', ''))
+                            except Exception as e:
+                                st.warning(f"⚠️ Live search failed: {e}. Relying solely on local database.")
 
-                                        # 🔴 The Garbage Collector Filter: Blocks social media and bad blogs
-                                        exclude_domains=["instagram.com", "facebook.com", "x.com", "twitter.com", "reddit.com", "quora.com", "tiktok.com", "blog.greeden.me"]
-                                    )
-                                    
-                                    web_context = f"Tavily AI Summary: {tavily_res.get('answer', '')}\n\n"
-                                    for r in tavily_res.get('results', []):
-                                        # Filtering to ensure highly legitimate data processing
-                                        web_context += f"Source: {r.get('title', 'Web')}\nSnippet: {r.get('content', '')}\n\n"
-                                        web_links.append(r.get('url', ''))
-                                    
-                                        
-                                except Exception as e:
-                                    st.warning(f"⚠️ Live search failed: {e}. Relying solely on local database.")
-
-                        # 🧠 GROQ SYNTHESIS (Llama 3 acting as the Master Brain)
+                        # 3. Context & Truncation (No 413 Errors)
                         prior_messages = st.session_state.messages[:-1]
                         history_ctx = build_history_context(prior_messages)
                         contextual_query = (f"{latest_q}\n\n[Conversation context:\n{history_ctx}]") if history_ctx != "No prior conversation." else latest_q
-                    
-                        # =====================================================================
-                        # 🧠 THE ULTIMATE TIME-AWARE & LANGUAGE-LOCKED ROUTER
-                        # =====================================================================
-                        import re
-                        has_bengali_script = bool(re.search(r'[\u0980-\u09FF]', latest_q))
-                        
-                        # 1. CORE PERSONA (Dynamically assigned)
-                        if has_bengali_script:
-                            system_persona = """তুমি হচ্ছো GSTU (গোপালগঞ্জ বঙ্গবন্ধু শেখ মুজিবুর রহমান বিজ্ঞান ও প্রযুক্তি বিশ্ববিদ্যালয়) এর ইন্টারন্যাশনাল রিলেশনস (IR) ডিপার্টমেন্টের চিফ জিওপলিটিক্যাল অ্যানালিস্ট এবং এলিট এআই অ্যাসিস্ট্যান্ট।
-তোমার টোন হবে একজন সম্মানীয় বিশ্ববিদ্যালয়ের প্রফেসরের মতো—অত্যন্ত যুক্তিনির্ভর, অ্যাকাডেমিক এবং গোছানো।"""
-                        else:
-                            system_persona = """You are the Elite AI Assistant & Chief Geopolitical Analyst for the IR Department at GSTU.
-Your tone must be that of a distinguished University Professor—highly impressive, structured, analytical, and objective."""
 
-                        # 2. THE MASTER SHIELD (Time & Banglish Fix)
+                        MAX_DB_CHARS = 1500
+                        MAX_FILE_CHARS = 1500
+                        safe_db_context = db_context[:MAX_DB_CHARS] + ("...[Truncated]" if len(db_context) > MAX_DB_CHARS else "")
+                        safe_file_context = context_from_files[:MAX_FILE_CHARS] + ("...[Truncated]" if len(context_from_files) > MAX_FILE_CHARS else "")
+
+                        # 4. Strict Language Router
+                        has_banglish_keywords = any(word in latest_q.lower().split() for word in ["ki", "ajker", "kemon", "bhalo", "koro", "hobe", "na", "amar", "tumi", "bolo"])
+                        
+                        if is_bengali or has_banglish_keywords:
+                            system_instruction = (
+                                "You are the Chief Geopolitical Analyst for the IR Department at GSTU.\n"
+                                "CRITICAL REQUIREMENT: You MUST respond entirely in flawless, academic, formal BENGALI SCRIPT (বাংলা লিপি).\n"
+                                "Never mix English and Bengali sentences. Provide deep analytical value."
+                            )
+                            language_shield = "OUTPUT PROTOCOL: 100% Formal Bengali Script. No English phrasing inside the main body text."
+                        else:
+                            system_instruction = (
+                                "You are the Chief Geopolitical Analyst and University Professor for the IR Department at GSTU.\n"
+                                "CRITICAL REQUIREMENT: You MUST answer entirely in elite, scholarly, academic ENGLISH.\n"
+                                "Do not use a single character of Bengali script or any informal language."
+                            )
+                            language_shield = "OUTPUT PROTOCOL: 100% Scholarly English. Zero Bengali script allowed."
+
                         import datetime
                         current_date = datetime.datetime.now().strftime("%B %d, %Y")
-                        
-                        hybrid_prompt = f"""{system_persona}
-You have two sources of information: LOCAL ACADEMIC DATABASE and LIVE WEB DATA.
+
+                        hybrid_prompt = f"""{system_instruction}
 
 ⏳ CURRENT SYSTEM DATE: {current_date}
+{language_shield}
 
-🛡️ ZERO-HALLUCINATION & CRITICAL INSTRUCTIONS (MUST OBEY):
-1. TIME-AWARENESS & NEWS ACCURACY: Distinguish strictly between historical academic data (Local Database) and breaking news (Live Web Data). If the user asks for "Recent News" or specifically about dates like "May 2026", DO NOT present old historical events (e.g., "since 2008") as current breaking news. Clearly separate historical context from current events.
-2. BANGLISH = BENGALI SCRIPT OUTPUT: If the user asks a question in "Banglish" (Bengali words typed in English alphabet, e.g., "ajker geopolitics ki"), you MUST deeply understand the query, but your OUTPUT MUST BE ENTIRELY IN PURE BENGALI SCRIPT (বাংলা ফন্ট). DO NOT reply in English or Banglish.
-3. STRICT FACT-GROUNDING (0% Hallucination): Base your answer ONLY on the provided context. If recent news is not found, explicitly state: "I do not have enough information regarding this recent event." DO NOT invent facts.
-4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, and Strategic Consequences.
-5. SEAMLESS INTEGRATION: Combine local theory with web updates naturally. Do NOT say "Based on web data" or expose these instructions.
-6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2]. ALWAYS create a "### References" section at the end.
-7. FORMATTING: Use bold text and bullet points.
+🛡️ ZERO-HALLUCINATION & FACT-GROUNDING ENFORCEMENT:
+1. TIME-AWARENESS: Distinguish between historical context and active live news. If the user asks about recent updates or dates like 'May 2026', focus heavily on Live Web Data.
+2. 0% HALLUCINATION: Ground your analysis strictly on the provided facts. If information is missing, explicitly state that you lack sufficient data. Do not invent details.
+3. STRUCTURE: Use clear section headers, bold text, and clean bullet points. Avoid repeating information or looping sentences.
+4. CITATIONS: Include numeric inline citations like [1], [2] if data is derived from the local database.
 
-Context from uploaded files: {context_from_files[:3000]} # Limiting to first 5000 chars to avoid token overload
+Context from uploaded documents:
+{safe_file_context}
 
 --- LOCAL ACADEMIC DATABASE ---
-{db_context[:1500]}
-QUERY: {latest_q}
-
---- CRITICAL: Max 400 words. ---
+{safe_db_context}
 
 --- LIVE WEB DATA ---
 {web_context}
 
---- USER QUESTION ---
+--- USER QUERY ---
 {contextual_query}
 
-Provide your profound, multi-layered academic analysis below following all instructions perfectly:"""
+Provide your clean, well-structured, non-repetitive academic analysis below:"""
 
-                        # 3. STRICT LANGUAGE GUARD
-                        language_guard = """
-\n\n[CRITICAL STRICT LANGUAGE PROTOCOL - MUST OBEY EXACTLY]
-1. If the input is Banglish, output MUST be strictly in Bengali Script (বাংলা লিপি).
-2. ENGLISH RULE: Use scholarly English. DO NOT use robotic tones.
-3. BENGALI RULE: Use 100% native, flawless, formal, and grammatically perfect Bengali (শুদ্ধ, সাবলীল ও প্রাতিষ্ঠানিক বাংলা).
-4. FAILURE OVERRIDE: If you lack the capability to output perfect Bengali, reply EXACTLY with:
-"⚠️ **Language Error / ভাষা ত্রুটি:** দুঃখিত, নির্বাচিত মডেলটি এই মুহূর্তে উন্নত বাংলা প্রসেস করতে সক্ষম নয়।"
-"""
-                        hybrid_prompt += language_guard
-                        
-                        # ============================================================
-                        # 🧠 SMART EXECUTION & AGENTIC ROUTING ENGINE (ASTRA CORE) 
-                        # ============================================================
-                        
-                        # 🔴 FEATURE FLAG: STEALTH MODE
-                        # Set to False for public launch. Set to True to unlock Agentic AI.
+                        agent_messages = [
+                            SystemMessage(content=system_instruction),
+                            HumanMessage(content=hybrid_prompt)
+                        ]
 
-                        ENABLE_AGENTIC_CORE = False  
-                        tool_triggered = False # 🔴 Guard variable for hiding sources during personal tool execution
+                        # 5. Agentic Core Execution
+                        ENABLE_AGENTIC_CORE = True 
+                        tool_triggered = False
+                        answer = ""      
                         
-                        with st.chat_message("assistant", avatar="✨"):
-                            think_status = st.status("💭 Astra Core is analyzing...", expanded=True)
-                            think_status.write("🔍 Evaluating query complexity...")
+                        if ENABLE_AGENTIC_CORE:
+                            llm_with_tools = llm.bind_tools(astra_core_tools)
+                            initial_response = llm_with_tools.invoke(agent_messages)
                             
-                            try:
-                                if ENABLE_AGENTIC_CORE:
-                                    from agent_tools import astra_core_tools
-                                    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-                                    
-                                    llm_with_tools = llm.bind_tools(astra_core_tools)
-                                    initial_messages = [HumanMessage(content=hybrid_prompt)]
-                                    initial_response = llm_with_tools.invoke(initial_messages)
-                                    
-                                    if hasattr(initial_response, 'tool_calls') and initial_response.tool_calls:
-                                        tool_triggered = True # 🔴 Tool detected! We will disable citations below.
-                                        think_status.write("⚙️ Autonomous Agent triggered. Routing to internal tools...")
-                                        initial_messages.append(initial_response)
-                                        
-                                        for tool_call in initial_response.tool_calls:
-                                            tool_name = tool_call['name']
-                                            tool_args = tool_call['args']
-                                            
-                                            if tool_name == "analyze_student_progress" and "user_id" not in tool_args:
-                                                tool_args["user_id"] = user_id
-                                                
-                                            think_status.write(f"🛠️ Executing `{tool_name}` from GSTU Database...")
-                                            tool_func = next((t for t in astra_core_tools if t.name == tool_name), None)
-                                            if tool_func:
-                                                tool_result = tool_func.invoke(tool_args)
-                                                initial_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call['id']))
-                                            else:
-                                                initial_messages.append(ToolMessage(content="Tool execution failed.", tool_call_id=tool_call['id']))
-                                                
-                                        think_status.write("🧠 Tool data collected. Formulating final response...")
-                                        think_status.update(label="💡 Agentic Analysis Complete", state="complete", expanded=False)
-                                        
-                                        def agent_stream_generator():
-                                            if st.session_state.current_model == "local-gpt4all":
-                                                response = llm.invoke(initial_messages)
-                                                words = str(response.content).split(" ")
-                                                for word in words:
-                                                    yield word + " "
-                                                    time.sleep(0.03)
-                                            else:
-                                                for chunk in llm.stream(initial_messages): 
-                                                    yield chunk.content
-                                                    
-                                        answer = st.write_stream(agent_stream_generator())
-                                        
-                                    else:
-                                        if needs_web: think_status.write("🌐 Aggregating live global datasets...")
-                                        think_status.write("⚙️ Formulating strategic response...")
-                                        think_status.update(label="💡 Analysis Complete", state="complete", expanded=False)
-                                        
-
-                                # 🌊 SMART STREAMING ENGINE (Handles both Cloud & Local GPT4All)
-                                answer = "" # 🔴 FIX: Initializing variable first to prevent NameError
-                
-                                try:
-                                    def stream_generator():
-                                        # 1. Fake Streaming for Local GPT4All
-                                        if st.session_state.current_model == "local-gpt4all":
-                                            response = llm.invoke(hybrid_prompt)
-                                            words = str(response.content).split(" ")
-                                            for word in words:
-                                                yield word + " "
-                                                time.sleep(0.03)
-                                                
-                                        # 2. Native Streaming for Cloud Models (Gemini, Llama etc.)
-                                        else:
-                                            for chunk in llm.stream(hybrid_prompt):
-                                                yield chunk.content
-                                                
-                                    # Executing the stream
-                                    answer = st.write_stream(stream_generator())
-                                    
-                                except Exception as api_error:
-                                    # 🔴 FALLBACK: If primary model fails, auto-route to backup Llama 3
-                                    st.toast("⚠️ Primary engine error. Auto-routing to backup engine...", icon="🔄")
-                                    
-                                    try:
-                                        fallback_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-                                        from langchain_groq import ChatGroq
-                                        fallback_llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.1, groq_api_key=fallback_key)
-                                        
-                                        def fallback_stream():
-                                            for chunk in fallback_llm.stream(hybrid_prompt):
-                                                yield chunk.content
-                                                
-                                        answer = st.write_stream(fallback_stream())
-                                    except Exception as fallback_err:
-                                        # If both engines fail, set a safe answer
-                                        answer = f"⚠️ Both Primary and Fallback engines failed. Error: {fallback_err}"
-                                        st.error(answer)
-                                        
-                                    
-                                # =====================================================================
-                                # 📚 Beautiful Source Formatting (OpenAI Style) - USER PROVIDED CODE
-                                # =====================================================================
-                                if not tool_triggered: # 🔴 Guard condition
-                                    source_text = "\n\n<div style='margin-top: 15px;'><details><summary style='cursor: pointer; font-weight: 600; color: white;'>📚 View Citations & Sources</summary><div style='padding-top: 10px;'>"
-                                    
-                                    # Add DB Sources
-                                    for src, pages in db_sources.items():
-                                        if pages:
-                                            sorted_pages = sorted(list(pages), key=lambda x: int(x) if x.isdigit() else str(x))
-                                            page_str = ", ".join(sorted_pages)
-                                            source_text += f"<div style='margin-bottom: 5px;'>📄 <b>{src}</b> <i>(Page: {page_str})</i></div>"
-                                        else: 
-                                            source_text += f"<div style='margin-bottom: 5px;'>📄 <b>{src}</b></div>"
-                                        
-                                    # Add Web Sources (Premium Button CSS)
-                                    if web_links:
-                                        source_text += "<div style='display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;'>"
-                                        for link in web_links:
-                                            if link: 
-                                                domain = link.split('/')[2].replace('www.', '') if '//' in link else 'Web Source'
-                                                source_text += f"<a href='{link}' target='_blank' style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); color: white; padding: 4px 12px; border-radius: 16px; text-decoration: none; font-size: 12px; transition: all 0.2s;'>🔗 {domain}</a>"
-                                        source_text += "</div>"
-                                            
-                                    source_text += "</div></details></br></div>"
-        
-                                    res_text = answer + source_text
-                                    if needs_web and web_links:
-                                        res_text += "\n\n*(🌐 Realtime Data Powered by **GSTU AI Search**)*"
-                                        
-                                    st.markdown(res_text, unsafe_allow_html=True)
-                                else:
-                                    # 🔴 If tool triggered, just output the answer cleanly without PDF sources
-                                    res_text = answer
+                            if hasattr(initial_response, 'tool_calls') and initial_response.tool_calls:
+                                tool_triggered = True 
+                                st.toast("🔍 Fetching live data...", icon="🌐") 
+                                agent_messages.append(initial_response)
                                 
-                            except Exception as e:
-                                # 🔴 ACTUAL ERROR TRACKER (No more hiding behind "Sorry")
-                                logger.exception("Unexpected error: %s", e)
-                                res_text = "⚠️ **System Error.** Please try again or switch AI engines."
-                                st.error(res_text)
+                                for tool_call in initial_response.tool_calls:
+                                    tool_name = tool_call['name']
+                                    tool_args = tool_call['args']
+                                    if tool_name == "analyze_student_progress" and "user_id" not in tool_args:
+                                        tool_args["user_id"] = user_id
+                                        
+                                    tool_func = next((t for t in astra_core_tools if t.name == tool_name), None)
+                                    if tool_func:
+                                        tool_result = tool_func.invoke(tool_args)
+                                        agent_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call['id']))
+                                    else:
+                                        agent_messages.append(ToolMessage(content="Tool execution failed.", tool_call_id=tool_call['id']))
+                                        
+                                def agent_stream_generator():
+                                    for chunk in llm.stream(agent_messages): 
+                                        if hasattr(chunk, 'content'): yield str(chunk.content)
+                                answer = st.write_stream(agent_stream_generator())
+                                
+                        if not ENABLE_AGENTIC_CORE or not tool_triggered:
+                            def stream_generator():
+                                for chunk in llm.stream(agent_messages):
+                                    if hasattr(chunk, 'content'): yield str(chunk.content)
+                            answer = st.write_stream(stream_generator())
 
+                    except Exception as e:
+                        # 6. Smooth Silent Fallback
+                        error_msg = str(e).lower()
+                        if any(keyword in error_msg for keyword in ["429", "413", "rate limit", "rate_limit", "quota", "tokens"]):
+                            try:
+                                fallback_llm = get_llm("gemini-2.5-flash")
+                                def fallback_stream():
+                                    for chunk in fallback_llm.stream(agent_messages):
+                                        if hasattr(chunk, 'content'): yield str(chunk.content)
+                                st.toast("⚠️ Heavy load detected! Switched to backup AI.", icon="🔄")
+                                answer = st.write_stream(fallback_stream())
+                            except Exception as fallback_e:
+                                answer = "🚦 **Server Overloaded!** Please wait 10 seconds and try again."
+                                st.markdown(answer)
+                        else:
+                            answer = f"⚠️ System Error: `{str(e)[:150]}`"
+                            st.error(answer)
+                            
+                    # 7. Rendering Sources & Citations
+                    if "System Error" not in answer and "Server Overloaded" not in answer:
+                        source_text = "\n\n<div style='margin-top: 15px;'><details><summary style='cursor: pointer; font-weight: 600; color: white;'>📚 View Citations & Sources</summary><div style='padding-top: 10px;'>"
+                        has_sources = False
+                    
+                        for src, pages in db_sources.items():
+                            has_sources = True
+                            page_str = ", ".join(sorted(list(pages), key=lambda x: int(x) if x.isdigit() else str(x))) if pages else ""
+                            source_text += f"<div style='margin-bottom: 5px;'>📄 <b>{src}</b> {f'<i>(Page: {page_str})</i>' if page_str else ''}</div>"
+                            
+                        if web_links:
+                            has_sources = True
+                            source_text += "<div style='display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;'>"
+                            for link in web_links:
+                                if link: 
+                                    domain = link.split('/')[2].replace('www.', '') if '//' in link else 'Web Source'
+                                    source_text += f"<a href='{link}' target='_blank' style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); color: inherit; padding: 4px 12px; border-radius: 16px; text-decoration: none; font-size: 12px; transition: all 0.2s;'>🔗 {domain}</a>"
+                            source_text += "</div>"
+                                
+                        source_text += "</div></details></div>"
+                        
+                        # 🔴 If no external source is found, explicitly state it's internal AI knowledge
+                        if not has_sources:
+                            source_text += "<div style='margin-bottom: 5px; color: #94a3b8;'>🧠 <b>Internal AI Knowledge / General Concept</b></div>"
+                                
+                        source_text += "</div></details></div>"
+
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
+                        # Now it always attaches the source box!
+                        res_text = answer + source_text
+                            
+                        if needs_web and web_links:
+                            res_text += "\n\n*(🌐 Realtime Data Powered by **GSTU AI Search**)*"
+                    else:
+                        res_text = answer
+
+        # ==============================================================
+        # 💾 SAVE & CLEANUP (Execute Only Once)
+        # ==============================================================
         if res_text:
             st.session_state.messages.append({"role": "assistant", "content": res_text})
+            increment_usage(st.session_state.username_id, current_tier)
+
+            # 🔴 LOG DATA FOR FUTURE AI TRAINING
+            try:
+                # টপিক এক্সট্রাক্টর (প্রথম ৩-৪টা শব্দ)
+                extracted_topic = " ".join(user_query.split()[:4]) 
+                
+                supabase.table("ai_training_logs").insert({
+                    "user_id": st.session_state.username_id,
+                    "user_query": user_query,
+                    "ai_response": res_text,
+                    "topic_tag": extracted_topic,
+                    "timestamp": "now()"
+                }).execute()
+            except: pass
+            
+            if st.session_state.get('current_session_id'):
+                save_message_to_cloud(st.session_state.current_session_id, "ai", res_text)
         
         for ch in st.session_state.chat_history:
-            if ch["title"] == st.session_state.active_chat_title: ch["messages"] = st.session_state.messages.copy()
-        save_chat_history(st.session_state.chat_history)
-        # Force Auto-Scroll to Bottom
-        st.components.v1.html("""
-        """, height=0)
+            if ch["title"] == st.session_state.active_chat_title: 
+                ch["messages"] = st.session_state.messages.copy()
+        
+        try:
+            save_chat_history(st.session_state.chat_history)
+        except Exception:
+            pass
+
+        st.components.v1.html("", height=0)
         st.rerun()
 
     # =====================================================================
-    # 📜 ROBUST AUTO-SCROLL MECHANISM (Targets Last Message)
+    # 📜 ROBUST AUTO-SCROLL MECHANISM
     # =====================================================================
     st.components.v1.html("""
         <script>
             setTimeout(function() {
                 const messages = window.parent.document.querySelectorAll('.stChatMessage');
                 if (messages.length > 0) {
-                    // Scroll exactly to the last chat bubble
-                    messages[messages.length - 1].scrollIntoView({
-                        behavior: 'smooth', 
-                        block: 'end'
-                    });
+                    messages[messages.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
                 }
-            }, 400); // 400ms delay to ensure Streamlit has finished rendering the chunk
+            }, 400); 
         </script>
     """, height=0)
-

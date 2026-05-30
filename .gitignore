@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 .env
 
+# Secret Keys
+.streamlit/secrets.toml
+
 # Database & Vector Store
 chroma_db/
 users_db.json
