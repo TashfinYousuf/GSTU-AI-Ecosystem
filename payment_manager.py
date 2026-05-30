@@ -3,11 +3,11 @@ import uuid
 import requests
 from auth_manager import supabase
 
-STORE_ID = st.secrets["sslcommerz"]["STORE_ID"]
-STORE_PASSWORD = st.secrets["sslcommerz"]["STORE_PASSWORD"]
-IS_SANDBOX = st.secrets["sslcommerz"]["IS_SANDBOX"]
+SSLCOMMERZ_STORE_ID = st.secrets["sslcommerz"]["SSLCOMMERZ_STORE_ID"]
+SSLCOMMERZ_STORE_PASS = st.secrets["sslcommerz"]["SSLCOMMERZ_STORE_PASS"]
+SSLCOMMERZ_IS_SANDBOX = st.secrets["sslcommerz"]["SSLCOMMERZ_IS_SANDBOX"]
 
-BASE_URL = "https://sandbox.sslcommerz.com" if IS_SANDBOX else "https://securepay.sslcommerz.com"
+BASE_URL = "https://sandbox.sslcommerz.com" if SSLCOMMERZ_IS_SANDBOX else "https://securepay.sslcommerz.com"
 
 def initiate_real_sslcommerz_payment(user_id, user_name, user_email, plan_name="Pro Scholar", amount=500.00):
     # 🔴 Generate a strict standard UUID for both Database and SSLCommerz
@@ -28,11 +28,11 @@ def initiate_real_sslcommerz_payment(user_id, user_name, user_email, plan_name="
 
     # 2. Setup SSLCommerz Payload
     # 🔴 FastAPI ব্যাকএন্ডের লিংক (যদি লোকালহোস্টে রান তবে http://127.0.0.1:8000, লাইভ হলে Render লিংক)
-    BACKEND_API_URL = "http://127.0.0.1:8000" 
+    BACKEND_API_URL = "https://gstu-ai-backend.onrender.com" 
     
     post_body = {
-        'store_id': STORE_ID,
-        'store_passwd': STORE_PASSWORD,
+        'store_id': SSLCOMMERZ_STORE_ID,
+        'store_pass': SSLCOMMERZ_STORE_PASS,
         'total_amount': amount,
         'currency': "BDT",
         'tran_id': tran_id,
