@@ -1,27 +1,31 @@
 import os
 import toml
+import secrets as secrets_module
 
-# =====================================================================
-# ☢️ NUCLEAR CLOUD FIX: Auto-Generate secrets.toml for Render
+# Get the directory where THIS file lives
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STREAMLIT_DIR = os.path.join(BASE_DIR, ".streamlit")
+SECRETS_FILE = os.path.join(STREAMLIT_DIR, "secrets.toml")
 
-if not os.path.exists(".streamlit/secrets.toml"):
-    os.makedirs(".streamlit", exist_ok=True)
-    
-    secrets = {
-        "SUPABASE_URL":        os.environ.get("SUPABASE_URL", ""),
-        "SUPABASE_KEY":        os.environ.get("SUPABASE_KEY", ""),
-        "GROQ_API_KEY":        os.environ.get("GROQ_API_KEY", ""),
-        "GOOGLE_API_KEY":      os.environ.get("GOOGLE_API_KEY", ""),
-        "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
-        "TAVILY_API_KEY":      os.environ.get("TAVILY_API_KEY", ""),
+# 🔴 FIX: ফাইলটা যদি আগে থেকেই থাকে তবে বারবার রাইট করার দরকার নেই
+if not os.path.exists(SECRETS_FILE):
+    os.makedirs(STREAMLIT_DIR, exist_ok=True)
+    secrets_data = {
+        "SUPABASE_URL":         os.environ.get("SUPABASE_URL", ""),
+        "SUPABASE_KEY":         os.environ.get("SUPABASE_KEY", ""),
+        "GROQ_API_KEY":         os.environ.get("GROQ_API_KEY", ""),
+        "GOOGLE_API_KEY":       os.environ.get("GOOGLE_API_KEY", ""),
+        "OPENROUTER_API_KEY":   os.environ.get("OPENROUTER_API_KEY", ""),
+        "TAVILY_API_KEY":       os.environ.get("TAVILY_API_KEY", ""),
+        "APP_SECRET_KEY":       os.environ.get("APP_SECRET_KEY", secrets_module.token_hex(16)),
         "sslcommerz": {
-            "STORE_ID":   os.environ.get("SSLCOMMERZ_STORE_ID", ""),
-            "STORE_PASS": os.environ.get("SSLCOMMERZ_STORE_PASS", ""),
+            "STORE_ID":         os.environ.get("SSLCOMMERZ_STORE_ID", ""),
+            "STORE_PASS":       os.environ.get("SSLCOMMERZ_STORE_PASS", ""),
         },
     }
-    
-    with open(".streamlit/secrets.toml", "w") as f:
-        toml.dump(secrets, f)
+    with open(SECRETS_FILE, "w") as f:
+        toml.dump(secrets_data, f)
+    print(f"[secrets] Written to: {SECRETS_FILE}")
 # =====================================================================
 
 import re  # For detecting Bengali/French text automatically

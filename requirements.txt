@@ -2,6 +2,7 @@ fastapi
 uvicorn
 pydantic
 streamlit
+toml
 supabase
 langchain
 langchain-community
