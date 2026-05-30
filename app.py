@@ -19,7 +19,7 @@ import logging
 logger = logging.getLogger(__name__)
 import streamlit as st
 
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core import embeddings
 from socket import AF_INET, SOCK_STREAM
 from dotenv import load_dotenv
