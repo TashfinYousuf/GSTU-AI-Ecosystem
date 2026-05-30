@@ -1,17 +1,28 @@
 import os
+import toml
 
 # =====================================================================
 # ☢️ NUCLEAR CLOUD FIX: Auto-Generate secrets.toml for Render
-# =====================================================================
+
 if not os.path.exists(".streamlit/secrets.toml"):
     os.makedirs(".streamlit", exist_ok=True)
+    
+    secrets = {
+        "SUPABASE_URL":        os.environ.get("SUPABASE_URL", ""),
+        "SUPABASE_KEY":        os.environ.get("SUPABASE_KEY", ""),
+        "GROQ_API_KEY":        os.environ.get("GROQ_API_KEY", ""),
+        "GOOGLE_API_KEY":      os.environ.get("GOOGLE_API_KEY", ""),
+        "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
+        "TAVILY_API_KEY":      os.environ.get("TAVILY_API_KEY", ""),
+        "sslcommerz": {
+            "STORE_ID":   os.environ.get("SSLCOMMERZ_STORE_ID", ""),
+            "STORE_PASS": os.environ.get("SSLCOMMERZ_STORE_PASS", ""),
+        },
+    }
+    
     with open(".streamlit/secrets.toml", "w") as f:
-        f.write(f'SUPABASE_URL = "{os.environ.get("SUPABASE_URL", "")}"\n')
-        f.write(f'SUPABASE_KEY = "{os.environ.get("SUPABASE_KEY", "")}"\n')
-        f.write(f'GROQ_API_KEY = "{os.environ.get("GROQ_API_KEY", "")}"\n')
-        f.write(f'GOOGLE_API_KEY = "{os.environ.get("GOOGLE_API_KEY", "")}"\n')
-        f.write(f'OPENROUTER_API_KEY = "{os.environ.get("OPENROUTER_API_KEY", "")}"\n')
-        f.write(f'TAVILY_API_KEY = "{os.environ.get("TAVILY_API_KEY", "")}"\n')
+        toml.dump(secrets, f)
+# =====================================================================
 
 import re  # For detecting Bengali/French text automatically
 import uuid
