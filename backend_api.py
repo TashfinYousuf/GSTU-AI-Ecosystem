@@ -351,7 +351,7 @@ async def earn_credits(user_id: str, action_type: str):
 # =====================================================================
 # 🔴 Streamlit ফ্রন্টএন্ডের লিংক (লোকাল টেস্টিংয়ের জন্য localhost:8501)
 # প্রজেক্ট লাইভ করার সময় এখানে Render বা আপনার আসল ডোমেইন লিংক বসাতে হবে
-FRONTEND_URL = "http://localhost:8501"
+FRONTEND_URL = "https://gstu-ai-backend.onrender.com"
 
 # Initialize Admin Client (Bypasses RLS)
 admin_supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))

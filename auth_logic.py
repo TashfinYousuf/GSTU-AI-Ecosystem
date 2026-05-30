@@ -30,7 +30,7 @@ def init_auth_session():
     if "auth_mode" not in st.session_state: st.session_state.auth_mode = "login"
 
 def get_oauth_url(provider):
-    return f"{SUPABASE_URL}/auth/v1/authorize?provider={provider}&redirect_to=http://localhost:8501"
+    return f"{SUPABASE_URL}/auth/v1/authorize?provider={provider}&redirect_to=https://gstu-ai-backend.onrender.com/oauth-callback"
 
 def login_user(email, password):
     try:
