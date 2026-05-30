@@ -83,12 +83,6 @@ div[data-testid="collapsedControl"]::after {
     pointer-events: none !important;
 }
 
-/* Lock Sidebar completely to prevent UI breaking */
-[data-testid="stSidebarResizer"] { display: none !important; visibility: hidden !important; width: 0px !important; }
-
-@media (min-width: 641px) {
-    section[data-testid="stSidebar"] { min-width: 320px !important; max-width: 320px !important; }
-}
 
 /* ===================================================
    ৩. GEMINI STYLE SIDEBAR BUTTONS

@@ -1,4 +1,3 @@
-import os
 import toml
 import os, toml, secrets as _secrets
 
@@ -26,6 +25,28 @@ toml.dump({
 }, open(SECRETS_FILE, "w"))
 # =====================================================================
 
+import json
+
+# =====================================================================
+# ☢️ NUCLEAR FIX: Self-Healing Database Generator
+# =====================================================================
+def initialize_central_db():
+    db_path = "users_db.json" # অথবা আপনার ডাটাবেস ফাইলের নাম
+    if not os.path.exists(db_path):
+        print("🔴 Database not found. Initializing new central database...")
+        default_data = {
+            "system_meta": {"version": "1.0", "status": "initialized"},
+            "users": {} 
+        }
+        with open(db_path, "w") as f:
+            json.dump(default_data, f, indent=4)
+        print("✅ Central database initialized successfully.")
+    else:
+        print("✅ Central database detected.")
+
+# অ্যাপ শুরুর একদম শুরুতে এটা কল করুন
+initialize_central_db()
+
 import re  # For detecting Bengali/French text automatically
 import uuid
 import html
@@ -33,7 +54,6 @@ import email
 import requests
 import hashlib
 import time
-import json
 import socket
 import secrets
 import base64
@@ -83,6 +103,71 @@ st.set_page_config(page_title="GSTU AI Assistant", layout="wide", initial_sideba
 
 
 # =====================================================================
+# 🛠️ CORE STATE INITIALIZATION (Prevents Widget Errors)
+# =====================================================================
+# Initialize EVERYTHING here before any widget tries to read them
+default_states = {
+    'authenticated': False,
+    'auth_mode': 'login',
+    'messages': [],
+    'user_id': None,
+    'username_id': None,
+    'user_email': None,
+    'just_logged_in': False,
+    'active_chat_title': None,
+    'users_db': {}
+}
+
+for key, val in default_states.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+
+# 🔴 PUT THIS IMMEDIATELY AFTER st.set_page_config()
+st.markdown("""
+    <style>
+    /* Absolute blanket over everything before loading */
+    #root > div:nth-child(1) { visibility: hidden; }
+    #root > div:nth-child(1) > div { visibility: visible; }
+    
+    .supreme-splash {
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background-color: #05080f; z-index: 9999999999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        animation: splashFade 0.4s ease-in-out 1.2s forwards; 
+    }
+    .supreme-splash-text {
+        color: #10a37f; font-family: 'Inter', sans-serif; font-size: 22px; font-weight: 700;
+        animation: pulse 0.8s infinite alternate; letter-spacing: -0.5px;
+    }
+    @keyframes pulse { from { opacity: 0.5; transform: scale(0.95); } to { opacity: 1; transform: scale(1.05); } }
+    @keyframes splashFade { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+    
+    <div class="supreme-splash">
+        <div class="supreme-splash-text">✨ Syncing Ecosystem...</div>
+    </div>
+            
+    # =====================================================================
+    # ⚡ GLOBAL ANTI-FLASH & SMOOTH TRANSITIONS
+    # =====================================================================
+
+    /* Kill black flash — fade in instead of hard repaint */
+    .stApp { animation: gstu-fadein 0.18s ease-out both !important; }
+    @keyframes gstu-fadein { from { opacity: 0; } to { opacity: 1; } }
+
+    [data-testid="stMainBlockContainer"] { animation: gstu-fadein 0.2s ease-out both !important; }
+    [data-testid="stAppViewBlockContainer"] { transition: opacity 0.15s ease !important; }
+
+    /* Hide Streamlit's default loading UI */
+    .stSpinner, [data-testid="stStatusWidget"] { display: none !important; }
+
+    /* Smooth element transitions */
+    div[data-testid="stButton"] > button { transition: all 0.15s ease !important; }
+    [data-testid="stSelectbox"] > div > div { transition: all 0.15s ease !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# =====================================================================
 # 🛡️ GLOBAL SESSION STATE INITIALIZATION (Prevents NoneType Crashes)
 # =====================================================================
 if "users_db" not in st.session_state or st.session_state.users_db is None:
@@ -96,7 +181,7 @@ if "messages" not in st.session_state:
 # =====================================================================
 # 🔴 2. PERSISTENT COOKIE & STATE INITIALIZATION
 # =====================================================================
-cookie_controller = CookieController()
+cookie_controller = CookieController(key="gstu_auth_cookie_manager")
 
 # Initialize all required auth states
 DEFAULT_STATES = {
@@ -250,16 +335,16 @@ if "user_info" not in st.session_state: st.session_state["user_info"] = None
 if "voice_draft" not in st.session_state: st.session_state.voice_draft = "" # Voice draft save thakbe
 
 
-# 4. Base64 Image Loader
+# 4. Base64 Image Loader (⚡ HARDWARE CACHED FOR EXTREME SPEED)
+@st.cache_data
 def get_base64_image(image_path):
     if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
+        with open(image_path, "rb") as img_file: 
+            return base64.b64encode(img_file.read()).decode()
     return None
 
 # data folder er theke call kora
 logo_b64 = get_base64_image("data/logo.png")
-
-# HTML Syntax: 'data/logo.png' er bodole 'data:image/png' hobe
 logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 42px; height: 42px; border-radius: 50%; margin-right: 12px; object-fit: cover;'>" if logo_b64 else "<span style='font-size: 42px; margin-right: 10px;'>🎓</span>"
 
 
@@ -268,7 +353,35 @@ logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 42px; he
 # =====================================================================
 st.markdown("""
     <style>
-    .block-container { max-width: 95% !important; transition: max-width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.4s ease !important; }
+    /*====================================================================
+    ☢️ NUCLEAR Fix: Perfect Overlap Control & Position (ChatGPT Style)
+    ===================================================================== */
+    
+    /* 🔴 1. PREVENT ANY CONTENT FROM SHOWING BELOW INPUT BOX */
+    .block-container {
+        padding-bottom: 160px !important; /* Force Huge bottom space so last message stays above input */
+        max-width: 100% !important; /* Forces chat to take full width when collapsed */
+        transition: max-width 0.3s ease-in-out, padding 0.3s ease-in-out !important; 
+    }
+    
+    /* 🔴 2. SOLID FIXED CHAT INPUT AT THE ABSOLUTE BOTTOM (No overlap) */
+    .stChatInputContainer {
+        position: fixed !important; 
+        bottom: 0 !important; 
+        left: 0 !important;
+        width: 100% !important; 
+        padding-bottom: 25px !important; /* Perfect Gemini style spacing */
+        padding-top: 15px !important;
+        z-index: 99999 !important; /* Always stays on top of messages */
+        border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+        
+        /* DYNAMIC BACKGROUND (Must match current theme to mask scrolling text) */
+        background-color: var(--stApp-background) !important; 
+    }
+    
+    /* Stop the annoying skeleton/running status indicator flashing at top right */
+    [data-testid="stStatusWidget"] { visibility: hidden !important; display: none !important; }
+        
     div.stButton > button { border-radius: 8px !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; background-color: transparent !important; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important; }
     div.stButton > button:hover { border-color: #10a37f !important; color: #10a37f !important; transform: translateY(-2px) !important; box-shadow: 0 4px 12px rgba(16, 163, 127, 0.2) !important; }
     div.stSelectbox > div[data-baseweb="select"] > div { background-color: transparent !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; transition: all 0.3s ease !important; }
@@ -301,6 +414,59 @@ st.markdown("""
         padding: 30px;
         border: 1px solid rgba(255, 255, 255, 0.1);
     }
+
+    /* 🔴 1. NATIVE SMOOTH SIDEBAR (REMOVED WIDTH LOCKS) */
+    [data-testid="stSidebar"] {
+        background-color: rgba(10, 15, 30, 0.4) !important;
+        backdrop-filter: blur(25px) !important;
+        -webkit-backdrop-filter: blur(25px) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+        /* DO NOT add min-width, max-width or transform here. Let Streamlit handle the smooth << animation naturally! */
+    }
+    
+    /* 🔴 2. 100% WIDTH CHAT EXPANSION FIX */
+    .block-container {
+        max-width: 100% !important; /* Forces chat to take full width when collapsed */
+        transition: max-width 0.3s ease-in-out, padding 0.3s ease-in-out !important; /* Smooth transition */
+        padding-top: 3rem !important; 
+        padding-bottom: 2rem !important;
+    }
+    
+    /* 🔴 3. HIDE THE DUMMY HOME BUTTON */
+    button[kind="secondary"]:has(div:contains("hidden_home_trigger")) {
+        display: none !important;
+    }
+    
+    /* Mobile specific fixes to stop layout breaking */
+    @media (max-width: 768px) {
+        .block-container { padding-top: 1rem !important; }
+        div[data-testid="column"]:nth-child(2) {
+            padding: 15px !important; margin-top: 1vh !important;
+        }
+        .stChatInputContainer { padding-bottom: 10px !important; }
+    }
+
+    /* 🔴 1. PREVENT CHAT OVERLAPPING (Huge bottom padding) */
+    .block-container {
+        padding-bottom: 140px !important; /* Force space so last message stays above input */
+    }
+    
+    /* 🔴 2. SOLID INPUT BACKGROUND (Masks scrolling text) */
+    .stChatInputContainer {
+        background-color: #05080f !important; /* Solid Dark Color */
+        padding-bottom: 25px !important;
+        padding-top: 15px !important;
+        z-index: 9999 !important; /* Always stays on top */
+        border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+
+    .stApp { animation: gstu-fadein 0.18s ease-out both; }
+    @keyframes gstu-fadein { from { opacity: 0; } to { opacity: 1; } }
+    [data-testid="stMainBlockContainer"] { animation: gstu-fadein 0.2s ease-out both; }
+    .stSpinner, [data-testid="stStatusWidget"] { display: none !important; }
+    div[data-testid="stButton"] > button { transition: all 0.15s ease !important; }
+    [data-testid="stSelectbox"] > div > div { transition: all 0.15s ease !important; }
+                
     </style>
 """, unsafe_allow_html=True)
 
@@ -390,7 +556,7 @@ try:
         st.session_state.chat_history = load_chat_history()
         st.toast("✅ Login Successful! Welcome back.", icon="🎉")
 except Exception:
-    time.sleep(0.1)
+    time.sleep(0.2)
 
 # 🧠 SUPABASE OAUTH LOGIC (Smooth Transition & Anti-Flash)
 if "code" in st.query_params:
@@ -444,16 +610,16 @@ if "code" in st.query_params:
 def welcome_dialog():
     st.markdown("<h3 style='text-align:center; color: #10a37f;'>Authentication Successful!</h3>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:gray;'>Loading your secure dashboard...</p>", unsafe_allow_html=True)
-    time.sleep(1.5)
+    time.sleep(1)
     st.session_state.just_logged_in = False
     st.rerun()
 
 if st.session_state.get("just_logged_in", False):
     welcome_dialog()
 
-# =====================================================================
-# 💎 DASHBOARD GLASSMORPHISM (ULTRA PREMIUM DARK VIBE - EXACT PIC 2)
-# =====================================================================
+# ==========================================================
+# 💎 DASHBOARD GLASSMORPHISM (ULTRA PREMIUM DARK VIBE)
+# ==========================================================
 
 dash_bg_b64 = ""
 for path in ["background_pic.png", "data/background_pic.png"]:
@@ -490,11 +656,6 @@ if dash_bg_b64:
             border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
         }}
         
-        /* 🔴 4. CHAT INPUT SURROUNDING FIX */
-        .stChatInputContainer {{
-            background: transparent !important;
-            padding-bottom: 25px !important;
-        }}
         [data-testid="stChatInput"] {{
             background-color: rgba(15, 23, 42, 0.8) !important; /* Pic 2 Dark Input Box */
             backdrop-filter: blur(20px) !important;
@@ -515,20 +676,6 @@ if dash_bg_b64:
             padding: 15px !important;
             color: #e2e8f0 !important;
             box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
-        }}
-
-        /* 🔴 UNLOCK SIDEBAR DYNAMIC RESIZER */
-        [data-testid="stSidebarResizer"] {{
-            z-index: 99999 !important; /* Resizer কে সবার উপরে নিয়ে আসা হলো */
-            cursor: col-resize !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        }}
-
-        [data-testid="stSidebar"] {{
-            min-width: 260px !important; 
-            max-width: 600px !important; /* ইউজারের টানার জন্য ম্যাক্স লিমিট খুলে দেওয়া হলো */
-            transition: width 0.2s ease-in-out !important;
         }}
 
         </style>
@@ -697,6 +844,31 @@ if not st.session_state['authenticated']:
         </style>
     """, unsafe_allow_html=True)
 
+    # =====================================================================
+    # ⚡ EXTREME UX BOOST (KILL STREAMLIT DIMMING & LOADING)
+    # =====================================================================
+    st.markdown("""
+        <style>
+        /* ☢️ KILL STREAMLIT RE-RUN DIMMING FOREVER */
+        div[data-testid="stAppViewBlockContainer"] {
+            opacity: 1 !important;
+            transition: none !important;
+            filter: none !important;
+        }
+        
+        /* Hide the small running skeleton/spinner */
+        [data-testid="stStatusWidget"] { visibility: hidden !important; opacity: 0 !important; }
+        .stSpinner { display: none !important; }
+        
+        /* Prevent annoying widget flash errors */
+        .stException { display: none !important; }
+        
+        /* Make all internal transitions instant */
+        * { transition-duration: 0.1s !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
+
     # 🔴 RESTORED PROPER LOGIN RATIO (To fix the zoomed out look)
     col1, col2, col3 = st.columns([1, 1.2, 1]) 
     
@@ -792,92 +964,79 @@ if not st.session_state['authenticated']:
 # =====================================================================
 
 # =====================================================================
-# ☀️ DYNAMIC LIGHT THEME OVERRIDE (Perfect Background Blur)
+# ☀️ DYNAMIC LIGHT THEME OVERRIDE (GPU Optimized)
 # =====================================================================
 if st.session_state.get("theme") == "light":
-    # 🔴 We reuse the global dashboard background image string
-    dash_bg_light = dash_bg_b64 if dash_bg_b64 else "" 
+    bg = dash_bg_b64 if dash_bg_b64 else logo_b64
     
     st.markdown(f"""
-        <style>
-        /* ☢️ ROOT VARIABLES */
-        :root {{
-            --primary-color: #10a37f !important;
-            --text-color: #0f172a !important;
-        }}
-        
-        /* 1. Global Light Background with BLURRED IMAGE OVERLAY */
-        .stApp {{ background-color: transparent !important; color: #0f172a !important; }}
-        .stApp::before {{
-            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            /* 🔴 MAGIC HERE: Light milky gradient over the original background image */
-            background: linear-gradient(rgba(248, 250, 252, 0.85), rgba(255, 255, 255, 0.95)), url('data:image/png;base64,{dash_bg_light}') center/cover no-repeat !important;
-            filter: blur(10px); 
-            z-index: -999; transform: scale(1.05);
-            display: block !important;
-        }}
-        
-        /* 2. Fix Sidebar & Popovers (Glassmorphism Light) */
-        [data-testid="stSidebar"], 
-        div[data-testid="stPopoverBody"], 
-        div[role="dialog"] {{
-            background-color: rgba(255, 255, 255, 0.65) !important;
-            backdrop-filter: blur(25px) !important;
-            -webkit-backdrop-filter: blur(25px) !important;
-            border: 1px solid rgba(0, 0, 0, 0.1) !important;
-            color: #0f172a !important;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.05) !important;
-        }}
-        
-        /* 3. Chat Bubbles */
-        [data-testid="stChatMessage"] {{
-            background-color: rgba(255, 255, 255, 0.8) !important;
-            backdrop-filter: blur(15px) !important;
-            -webkit-backdrop-filter: blur(15px) !important;
-            border: 1px solid rgba(0, 0, 0, 0.1) !important;
-            color: #0f172a !important;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.03) !important;
-        }}
-        
-        /* Text Color Fixes */
-        p, h1, h2, h3, h4, h5, h6, span, label, div {{ color: #0f172a !important; }}
-        
-        /* Input Fields */
-        div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {{
-            background-color: rgba(255, 255, 255, 0.85) !important;
-            border: 1px solid rgba(0, 0, 0, 0.2) !important;
-            color: #0f172a !important;
-        }}
-        div[data-baseweb="input"] input {{ color: #0f172a !important; }}
-        
-        /* 🔴 LIGHT THEME PREMIUM BUTTONS (Matching Dark Theme Quality) */
-        div[data-testid="stButton"] > button {{
-            background: linear-gradient(145deg, #ffffff, #f1f5f9) !important;
-            border: 1px solid rgba(16, 163, 127, 0.4) !important;
-            color: #0f172a !important;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        }}
-        div[data-testid="stButton"] > button:hover {{
-            background: #ffffff !important;
-            border-color: #10a37f !important;
-            box-shadow: 0 8px 15px rgba(16, 163, 127, 0.2) !important;
-            color: #10a37f !important;
-            transform: translateY(-2px) !important;
-        }}
-        
-        /* Special Override for Primary Buttons in Light Mode */
-        div[data-testid="stButton"] > button[kind="primary"] {{
-            background: #10a37f !important;
-            color: #ffffff !important;
-        }}
-        div[data-testid="stButton"] > button[kind="primary"]:hover {{
-            background: #0f916f !important;
-            box-shadow: 0 8px 15px rgba(16, 163, 127, 0.4) !important;
-            color: #ffffff !important;
-        }}
-        </style>
-    """, unsafe_allow_html=True)
+    <style>
+    /* 1. Background — NO filter:blur (Fixes GPU lag/flash) */
+    .stApp::before {{
+        content: ""; position: fixed; inset: 0;
+        background:
+            linear-gradient(135deg, rgba(248,250,252,0.94) 0%, rgba(241,245,249,0.96) 100%),
+            url('data:image/jpeg;base64,{bg}') center/cover no-repeat;
+        z-index: -999; pointer-events: none;
+    }}
+
+    /* 2. Light Theme Base */
+    .stApp {{ background-color: #f8fafc !important; }}
+
+    /* 3. Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {{
+        background: rgba(255,255,255,0.72) !important;
+        backdrop-filter: blur(20px) saturate(1.4) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+        border-right: 0.5px solid rgba(0,0,0,0.08) !important;
+    }}
+
+    /* 4. Text - Targeted cleanly so it doesn't break buttons */
+    .stApp p, .stApp h1, .stApp h2, .stApp h3,
+    .stApp h4, .stApp h5, .stApp h6,
+    .stApp span:not([class*="icon"]), .stApp label,
+    .stApp [data-testid="stMarkdownContainer"] {{
+        color: #0f172a !important;
+    }}
+
+    /* 5. Buttons Fixed (No more black buttons) */
+    .stApp div[data-testid="stButton"] > button {{
+        background: rgba(255,255,255,0.85) !important;
+        border: 0.5px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        backdrop-filter: blur(8px) !important;
+    }}
+    .stApp div[data-testid="stButton"] > button:hover {{
+        background: rgba(255,255,255,0.95) !important;
+        border-color: #10a37f !important; color: #10a37f !important;
+    }}
+    
+    /* Primary Buttons */
+    .stApp div[data-testid="stButton"] > button[kind="primary"] {{
+        background: #10a37f !important; border: none !important; color: #fff !important;
+    }}
+    .stApp div[data-testid="stButton"] > button[kind="primary"]:hover {{
+        background: #0d8a6a !important;
+    }}
+
+    /* 6. Chat Input Fix */
+    .stApp [data-testid="stChatInput"] textarea,
+    .stApp [data-testid="stChatInput"] > div {{
+        background: rgba(255,255,255,0.88) !important;
+        border: 0.5px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        backdrop-filter: blur(12px) !important;
+    }}
+    
+    /* 7. Popover / Menus */
+    div[data-testid="stPopoverBody"], div[role="dialog"] {{
+        background: rgba(255,255,255,0.92) !important;
+        backdrop-filter: blur(20px) !important;
+        border: 0.5px solid rgba(0,0,0,0.1) !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.08) !important;
+    }}
+    </style>
+""", unsafe_allow_html=True)
 
 user_profile = get_user_profile(st.session_state.get('user_id'))
 
@@ -959,7 +1118,7 @@ def account_settings_dialog():
         
         theme_choice = st.selectbox(
             "Select Interface Mode", 
-            ["🌑 Dark Mode (Default)", "☀️ Light Mode (Premium)"],
+            ["🌑 Dark Mode (Default)", "☀️ Light Mode"],
             index=0 if st.session_state.get("theme") != "light" else 1
         )
         
@@ -1300,7 +1459,7 @@ if "active_chat_title" not in st.session_state: st.session_state.active_chat_tit
 if "messages" not in st.session_state: st.session_state.messages = []
 if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
 if "selection_mode" not in st.session_state: st.session_state.selection_mode = False
-if "current_model" not in st.session_state: st.session_state.current_model = "llama-3.1-8b-instant" 
+if "current_model" not in st.session_state: st.session_state.current_model = "meta-llama/llama-4-scout-17b-16e-instruct" 
 
 # 8. Initialize Models & Database
 @st.cache_resource(show_spinner=False)
@@ -1328,7 +1487,7 @@ def get_llm(model_id):
     # 🔴 Qwen k Llama er sathe Groq engine e route kora holo
     elif "llama" in model_id.lower() or "qwen" in model_id.lower():
         groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-        return ChatGroq(model_name=model_id, temperature=0.3, groq_api_key=groq_api_key)
+        return ChatGroq(model_name=model_id, temperature=0.5, groq_api_key=groq_api_key)
         
     elif model_id == "local-gpt4all":
         # 🔴 THE LOCAL OFFLINE ENGINE (Connects to GPT4All Server)
@@ -1579,15 +1738,27 @@ with st.sidebar:
         </style>
     """, unsafe_allow_html=True)
     
-    # 🔴 Fixed Sidebar Header (No more auto-logout on click!)
-    logo_img = f'<img src="data:image/png;base64,{logo_b64}" class="gstu-logo-img">' if logo_b64 else "<span style='font-size: 35px; margin:0;'>🎓</span>"
+    logo_img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="width:48px; height:48px; border-radius:50%; object-fit:cover; display:block;">' if logo_b64 else "<span style='font-size: 40px; margin:0;'>🎓</span>"
         
     st.markdown(f"""
-        <div class="gstu-sidebar-header" style="cursor: default;">
-            <div class="gstu-home-link" style="display:flex; align-items:center; gap:12px;">
-                {logo_img}
-                <div class="gstu-home-text" style="color:white; font-size:24px; font-weight:900;">GSTU IR AI</div>
-            </div>
+        <style>
+        .gstu-text-hover {{
+            color: white; font-size: 26px; font-weight: 900; letter-spacing: -0.5px; transition: color 0.2s ease;
+        }}
+        .gstu-sidebar-header-link:hover .gstu-text-hover {{
+            color: #10a37f !important;
+        }}
+        /* Shrink top padding of sidebar to lift the logo up */
+        [data-testid="stSidebar"] .block-container {{
+            padding-top: 2rem !important; 
+        }}
+        </style>
+        
+        <div style="margin-top: -10px; margin-bottom: 30px; display: flex; justify-content: center; align-items: center;">
+            <a href="/" target="_self" class="gstu-sidebar-header-link" style="display: flex; align-items: center; gap: 14px; text-decoration: none;">
+                {logo_img_tag}
+                <div class="gstu-text-hover">GSTU IR AI</div>
+            </a>
         </div>
     """, unsafe_allow_html=True)
 
@@ -1794,7 +1965,7 @@ if vectorstore and llm:
     m_col1, m_col2, m_col3 = st.columns([0.25, 0.5, 0.25])
     with m_col2:
         model_options = {
-            "⚡ Fast Engine (Llama 3 - 8B)": "llama-3.1-8b-instant",
+            "⚡ Fast Engine (Llama 4 - 17B)": "meta-llama/llama-4-scout-17b-16e-instruct",
             "💻 Offline Mode (GPT4All Local)": "local-gpt4all", 
             "🌐 Web Search (Gemini 2.5 Flash)": "gemini-2.5-flash",
             "🔬 DeepSeek R1 (Free)": "deepseek/deepseek-r1:free",
@@ -1808,7 +1979,7 @@ if vectorstore and llm:
         }
         
         # Get current model name for default index
-        current_model_name = "⚡ Fast Engine (Llama 3 - 8B)" 
+        current_model_name = "⚡ Fast Engine (Llama 4 - 17B)" 
         for key, val in model_options.items():
             if val == st.session_state.get("current_model"):
                 current_model_name = key
@@ -1825,6 +1996,16 @@ if vectorstore and llm:
         
         # Update session state seamlessly without triggering infinite loops
         st.session_state.current_model = model_options[selected_model_ui]
+
+        st.markdown("""
+        <style>
+        /* Force chat input to the absolute bottom safely */
+        .stChatInputContainer {
+            padding-bottom: 20px !important;
+            background: transparent !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         # ==============================================================
         # 🛑 PRE-EMPTIVE PREMIUM LOCK UI
@@ -1860,50 +2041,73 @@ if vectorstore and llm:
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                 act_cols = st.columns([0.08, 0.08, 0.08, 0.08, 0.08, 0.8], gap="small")
                 
-                # 🔊 Listen/Stop Toggle Button (Bulletproof URI Encoded TTS)
+                # 🔊 Listen/Stop Toggle Button (Bulletproof URI Encoded TTS with Dynamic UI)
                 with act_cols[0]:
-                    import re
                     import urllib.parse
                     
+                    # ১. ভাষা ডিটেক্ট করা (বাংলা নাকি ইংলিশ)
                     is_bn_msg = bool(re.search(r'[\u0980-\u09FF]', msg["content"]))
-                    tts_lang = "bn-IN" if is_bn_msg else "en-US" 
+                    tts_lang = "bn-BD" if is_bn_msg else "en-US" # bn-BD gives a more standard Bengali accent
                     
                     # 🔴 NUCLEAR CLEANUP FOR TTS: Strip HTML, Links & Markdown completely!
-                    clean_text = re.sub(r'<[^>]+>', ' ', msg["content"]) # Removes HTML tags like <div>, <details>
+                    clean_text = re.sub(r'<[^>]+>', ' ', msg["content"]) # Removes HTML tags
                     clean_text = re.sub(r'http\S+', '', clean_text) # Removes URLs
                     clean_text = re.sub(r'[*#_~`>|\[\]()-]', '', clean_text) # Removes Markdown
                     clean_text = clean_text.replace('\n', ' ').replace('"', "'").strip()
                     
-                    # Encode safely
+                    # ২. JS এর জন্য সেফ এনকোডিং
                     safe_speech_uri = urllib.parse.quote(clean_text)
                     
+                    # ৩. স্মার্ট HTML + JS প্লেয়ার (উইথ ভিজ্যুয়াল ফিডব্যাক)
                     st.components.v1.html(
                         f"""
                         <div style="display:flex; justify-content:center; align-items:center; height:100%;">
-                            <button onclick='toggleVoice()' title="Listen / Stop" style="background:transparent; border:none; cursor:pointer; font-size:18px; filter: grayscale(100%); outline:none; padding-top:2px;">🔊</button>
+                            <button id="tts-btn" onclick='toggleVoice()' title="Listen / Stop" style="background:transparent; border:none; cursor:pointer; font-size:18px; filter: grayscale(100%); outline:none; padding-top:2px; transition: transform 0.2s ease;">🔊</button>
                         </div>
                         <script>
+                        let btn = document.getElementById("tts-btn");
+                        
                         function toggleVoice() {{
                             if (window.speechSynthesis.speaking) {{
                                 window.speechSynthesis.cancel();
+                                btn.innerText = "🔊";
+                                btn.style.transform = "scale(1)";
                             }} else {{
+                                // Decode the safely encoded text
                                 let decodedText = decodeURIComponent('{safe_speech_uri}');
                                 let utterance = new SpeechSynthesisUtterance(decodedText);
                                 utterance.lang = '{tts_lang}'; 
                                 
+                                // Native Voice Routing
                                 let voices = window.speechSynthesis.getVoices();
                                 for(let i = 0; i < voices.length; i++) {{
-                                    if(voices[i].lang === '{tts_lang}' || voices[i].lang.includes('{tts_lang.split('-')[0]}')) {{
+                                    if(voices[i].lang.includes('{tts_lang.split('-')[0]}')) {{
                                         utterance.voice = voices[i];
                                         break;
                                     }}
                                 }}
+                                
+                                // 🔴 DYNAMIC UI: Change icon when playing and stopping
+                                utterance.onstart = function() {{
+                                    btn.innerText = "⏹️";
+                                    btn.style.transform = "scale(1.1)";
+                                }};
+                                utterance.onend = function() {{
+                                    btn.innerText = "🔊";
+                                    btn.style.transform = "scale(1)";
+                                }};
+                                utterance.onerror = function() {{
+                                    btn.innerText = "🔊";
+                                }};
+                                
                                 window.speechSynthesis.speak(utterance);
                             }}
                         }}
+                        
+                        // Force browser to pre-load voices instantly
                         window.speechSynthesis.getVoices();
                         </script>
-                        """, height=30
+                        """, height=35
                     )
 
                 # =================================
@@ -1978,71 +2182,51 @@ if vectorstore and llm:
             if voice_data and not st.session_state.voice_draft:
                 if st.button("🎙️ Process Audio", use_container_width=True):
                     with st.spinner("Translating voice to text..."):
+                        temp_audio_path = None
                         try:
-                            # সাময়িকভাবে অডিও ফাইলটি লোকাল ড্রাইভে সেভ করা
-                            # FIXED
+                            # সাময়িকভাবে অডিও ফাইলটি লোকাল ড্রাইভে সেভ করা
                             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                                 tmp.write(voice_data.getbuffer())
-                                temp_audio_path = tmp.name  # Unique per invocation
-                            
-                            # ফাইল সাইজ মেপে মেগাবাইটে কনভার্ট করা
-                            file_size_mb = os.path.getsize(temp_audio_path) / (1024 * 1024)
-                            MAX_LOCAL_SIZE_MB = 5.0 # ৫ মেগাবাইটের নিচে হলে লোকাল প্রসেস হবে
+                                temp_audio_path = tmp.name
                             
                             transcription = ""
                             
-                            # === ১. লোকাল ইঞ্জিন রান (ছোট ফাইলের জন্য) ===
-                            if file_size_mb <= MAX_LOCAL_SIZE_MB:
-                                st.toast(f"🔒 Local Engine Active ({file_size_mb:.2f} MB). Processing offline...", icon="🔌")
-                                try:
-                                    from faster_whisper import WhisperModel
-                                    # CPU এর জন্য int8 অপ্টিমাইজড করে লোড করা হলো যাতে ক্র্যাশ না করে
-                                    model = WhisperModel("base", device="cpu", compute_type="int8")
-                                    segments, info = model.transcribe(temp_audio_path, beam_size=5)
-                                    transcription = " ".join([segment.text for segment in segments])
-                                    st.toast("💡 Processed via: Local (faster-whisper)", icon="✅")
-                                except ImportError:
-                                    st.error("⚠️ Local faster-whisper not configured properly. Falling back to Cloud API...")
-                                    file_size_mb = 999 # ফোর্সড ক্লাউড ফলব্যাক
+                            # === ☢️ NUCLEAR FIX: ALWAYS ROUTE TO CLOUD API (Force Groq) ===
+                            # This completely stops the laggy local engine and fixes Bengali.
+                            from groq import Groq
+                            
+                            # Fetch API Key Safely
+                            groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+                            
+                            if not groq_api_key:
+                                st.error("⚠️ GROQ_API_KEY missing! Cannot process audio.")
+                            else:
+                                client = Groq(api_key=groq_api_key)
+                                with open(temp_audio_path, "rb") as audio_file:
+                                    transcription = client.audio.transcriptions.create(
+                                        file=(temp_audio_path, audio_file.read()),
+                                        model="whisper-large-v3",
+                                        response_format="text"
+                                    ).strip()
                                     
-                            # === ২. ক্লাউড ইঞ্জিন রান (বড় ফাইলের জন্য বা ফলব্যাক) ===
-                            if file_size_mb > MAX_LOCAL_SIZE_MB:
-                                st.toast(f"⚡ Cloud Engine Active. Routing to Groq Cloud API...", icon="🌐")
-                                from groq import Groq
-                                
-                                groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-                                if not groq_api_key:
-                                    st.error("⚠️ GROQ_API_KEY missing! Cannot process via cloud.")
-                                else:
-                                    client = Groq(api_key=groq_api_key)
-                                    with open(temp_audio_path, "rb") as audio_file:
-                                        transcription = client.audio.transcriptions.create(
-                                            file=(temp_audio_path, audio_file.read()),
-                                            model="whisper-large-v3",
-                                            response_format="text"
-                                        ).strip()
-                                    st.toast("💡 Processed via: Cloud (Groq Whisper API)", icon="🚀")
-                                    
-                            # সাময়িকভাবে তৈরি করা অডিও ফাইলটি ডিলিট করে ক্লিন করা
-                            if os.path.exists(temp_audio_path):
-                                os.remove(temp_audio_path)
-                                
-                            # টেক্সট ড্রাফট হিসেবে সেভ করে স্ক্রিন রিফ্রেশ দেওয়া (রিভিউ এর জন্য)
                             if transcription:
                                 st.session_state.voice_draft = transcription.strip()
                                 st.rerun() 
                             else:
-                                st.error("⚠️ Failed to transcribe audio. No text recovered.")
+                                st.error("⚠️ Failed to transcribe audio.")
                                 
                         except Exception as e:
-                            if os.path.exists(temp_audio_path):
-                                os.remove(temp_audio_path)
-                            st.error(f"⚠️ Audio processing pipeline error: {str(e)}")
+                            st.error(f"⚠️ Audio processing error: {str(e)}")
                             
-            # Render the Review & Edit Box if a draft exists
-            if st.session_state.get("voice_draft"):
-                st.info("📝 Review and edit your transcribed text before sending:")
-                edited_text = st.text_area("Transcribed Command:", value=st.session_state.voice_draft, height=100, key="voice_draft_editor")
+                        finally:
+                            # সাময়িকভাবে তৈরি করা অডিও ফাইলটি ক্লিন করা
+                            if temp_audio_path and os.path.exists(temp_audio_path):
+                                os.remove(temp_audio_path)
+                            
+            # Render the Review & Edit Box
+            if st.session_state.voice_draft:
+                st.info("📝 Review and edit before sending:")
+                edited_text = st.text_area("Command:", value=st.session_state.voice_draft, height=100, key="voice_draft_editor")
                 
                 col_v1, col_v2 = st.columns(2)
                 with col_v1:
@@ -2055,7 +2239,8 @@ if vectorstore and llm:
                         st.session_state.voice_draft = "" 
                         st.rerun()
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
 
 
     # 🔴 1. Smart Input Interceptor (Disables input if premium model is locked)
@@ -2224,8 +2409,7 @@ if vectorstore and llm:
                         if is_bengali and "llama" in active_model.lower():
                             st.toast("🔄 Llama doesn't support Bengali perfectly. Auto-routing to Gemini...", icon="⚡")
                             google_api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-                            from langchain_google_genai import ChatGoogleGenerativeAI
-                            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1, google_api_key=google_api_key)
+                            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2, google_api_key=google_api_key)
                         else:
                             llm = get_llm(active_model)
                 
@@ -2253,23 +2437,47 @@ if vectorstore and llm:
                                 if src_name not in db_sources: db_sources[src_name] = set()
                                 if page is not None: db_sources[src_name].add(str(page + 1))
 
-                        # 2. Web Search
-                        rt_keywords = ["current", "latest", "now", "today", "recent", "update", "updates", "2024", "2025", "2026", "news", "geopolitics", "situation", "war", "conflict", "crisis", "বর্তমান", "সাম্প্রতিক", "আজকের", "এখনকার", "খবর", "নিউজ", "পরিস্থিতি", "অবস্থা", "আপডেট"]
+                        # =====================================================================
+                        # 2. Web Search (With Auto Banglish-to-English Translator!)
+                        # =====================================================================
+                        rt_keywords = ["current", "latest", "now", "today", "recent", "update", "updates", "2024", "2025", "2026", "news", "geopolitics", "situation", "war", "conflict", "crisis", "বর্তমান", "সাম্প্রতিক", "আজকের", "এখনকার", "খবর", "নিউজ", "পরিস্থিতি", "অবস্থা", "আপডেট", "bortoman", "bishwer", "bisser", "ajker"]
                         needs_web = any(kw in latest_q.lower() for kw in rt_keywords)
                         web_context = "No live web search triggered."
                         web_links = []
 
                         if needs_web:
-                            tavily_key = os.getenv("TAVILY_API_KEY") or st.secrets.get("TAVILY_API_KEY")
+                            tavily_key = os.getenv("TAVILY_API_KEY") or (st.secrets.get("TAVILY_API_KEY") if hasattr(st, "secrets") else None)
                             if not tavily_key:
-                                st.error("⚠️ TAVILY_API_KEY is missing in .env! Get it for free at tavily.com")
+                                st.error("⚠️ TAVILY_API_KEY is missing!")
                                 st.stop()
+                                
                             try:
+                                # ☢️ NUCLEAR FIX: Translate Banglish/Bengali to English for Tavily
+                                search_query = latest_q
+                                has_banglish = any(word in latest_q.lower().split() for word in ["ki", "ajker", "kemon", "bhalo", "koro", "hobe", "na", "amar", "tumi", "bolo", "bisser", "bortoman", "news"])
+                                
+                                if is_bengali or has_banglish:
+                                    # Use a lightning-fast Groq model just for translating the search intent
+                                    from groq import Groq
+                                    translator = Groq(api_key=os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY"))
+                                    trans_res = translator.chat.completions.create(
+                                        model="llama-3.3-70b-versatile", 
+                                        messages=[
+                                            {"role": "system", "content": "You are a translator. Translate the given Bengali or Banglish text into a short, concise English search query (max 5 words) for Google Search. ONLY output the English query, nothing else. Example: 'bisser bortoman news' -> 'current global geopolitics news'."},
+                                            {"role": "user", "content": latest_q}
+                                        ],
+                                        temperature=0.1,
+                                        max_tokens=20
+                                    )
+                                    search_query = trans_res.choices[0].message.content.strip().strip('"').strip("'")
+                                    # st.toast(f"🔍 Translated Search: {search_query}") # (Optional) Uncomment to see what it translated to
+                                
+                                # Now search Tavily with the PERFECT English query!
                                 from tavily import TavilyClient
                                 tavily_client = TavilyClient(api_key=tavily_key)
                                 tavily_res = tavily_client.search(
-                                    query=latest_q, search_depth="advanced", max_results=8, include_answer=True,
-                                    exclude_domains=["instagram.com", "facebook.com", "x.com", "twitter.com", "reddit.com", "quora.com", "tiktok.com", "blog.greeden.me"]
+                                    query=search_query, search_depth="advanced", max_results=5, include_answer=True,
+                                    exclude_domains=["instagram.com", "youtube.com", "facebook.com", "x.com", "twitter.com", "tiktok.com"]
                                 )
                                 web_context = f"Tavily AI Summary: {tavily_res.get('answer', '')}\n\n"
                                 for r in tavily_res.get('results', []):
@@ -2277,6 +2485,7 @@ if vectorstore and llm:
                                     web_links.append(r.get('url', ''))
                             except Exception as e:
                                 st.warning(f"⚠️ Live search failed: {e}. Relying solely on local database.")
+
 
                         # 3. Context & Truncation (No 413 Errors)
                         prior_messages = st.session_state.messages[:-1]
@@ -2289,13 +2498,21 @@ if vectorstore and llm:
                         safe_file_context = context_from_files[:MAX_FILE_CHARS] + ("...[Truncated]" if len(context_from_files) > MAX_FILE_CHARS else "")
 
                         # 4. Strict Language Router
-                        has_banglish_keywords = any(word in latest_q.lower().split() for word in ["ki", "ajker", "kemon", "bhalo", "koro", "hobe", "na", "amar", "tumi", "bolo"])
+
+                        banglish_keywords = [
+                            "ki", "ajker", "kemon", "bhalo", "koro", "hobe", "na", "amar", "tumi", "bolo", 
+                            "bisser", "bortoman", "khobor", "somporke", "niye", "kobe", "kothay", "keno", 
+                            "kivabe", "kibhabe", "konta", "naki", "dao", "dekhaw", "bolen", "janaw", 
+                            "shomporke", "gulo", "gula", "kore", "kori", "korbo", "biswer", "ajke"
+                        ]
+
+                        has_banglish_keywords = any(word in latest_q.lower().split() for word in banglish_keywords)
                         
                         if is_bengali or has_banglish_keywords:
                             system_instruction = (
                                 "You are the Chief Geopolitical Analyst for the IR Department at GSTU.\n"
                                 "CRITICAL REQUIREMENT: You MUST respond entirely in flawless, academic, formal BENGALI SCRIPT (বাংলা লিপি).\n"
-                                "Never mix English and Bengali sentences. Provide deep analytical value."
+                                "Never mix English and Bengali sentences. Provide deep analytical value without repetition."
                             )
                             language_shield = "OUTPUT PROTOCOL: 100% Formal Bengali Script. No English phrasing inside the main body text."
                         else:
@@ -2334,43 +2551,73 @@ Context from uploaded documents:
 
 Provide your clean, well-structured, non-repetitive academic analysis below:"""
 
+                        from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
                         agent_messages = [
                             SystemMessage(content=system_instruction),
                             HumanMessage(content=hybrid_prompt)
                         ]
 
-                        # 5. Agentic Core Execution
+                        # =====================================================================
+                        # 5. AGENTIC CORE EXECUTION (☢️ NUCLEAR FIX APPLIED)
+                        # =====================================================================
                         ENABLE_AGENTIC_CORE = True 
                         tool_triggered = False
                         answer = ""      
                         
                         if ENABLE_AGENTIC_CORE:
-                            llm_with_tools = llm.bind_tools(astra_core_tools)
-                            initial_response = llm_with_tools.invoke(agent_messages)
-                            
-                            if hasattr(initial_response, 'tool_calls') and initial_response.tool_calls:
-                                tool_triggered = True 
-                                st.toast("🔍 Fetching live data...", icon="🌐") 
-                                agent_messages.append(initial_response)
+                            try:
+                                from langchain_groq import ChatGroq
+                                # ☢️ FIX 1: ALWAYS use a powerful 70B model for tool reasoning to prevent 400 errors
+                                llm_agent = ChatGroq(
+                                    api_key=os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY"),
+                                    model="llama-3.3-70b-versatile",
+                                    temperature=0.3,
+                                    max_tokens=2048
+                                )
+                                llm_with_tools = llm_agent.bind_tools(astra_core_tools)
                                 
-                                for tool_call in initial_response.tool_calls:
-                                    tool_name = tool_call['name']
-                                    tool_args = tool_call['args']
-                                    if tool_name == "analyze_student_progress" and "user_id" not in tool_args:
-                                        tool_args["user_id"] = user_id
-                                        
-                                    tool_func = next((t for t in astra_core_tools if t.name == tool_name), None)
-                                    if tool_func:
-                                        tool_result = tool_func.invoke(tool_args)
-                                        agent_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call['id']))
-                                    else:
-                                        agent_messages.append(ToolMessage(content="Tool execution failed.", tool_call_id=tool_call['id']))
-                                        
-                                def agent_stream_generator():
-                                    for chunk in llm.stream(agent_messages): 
-                                        if hasattr(chunk, 'content'): yield str(chunk.content)
-                                answer = st.write_stream(agent_stream_generator())
+                                # Let the 70B Agent decide if tools are needed
+                                initial_response = llm_with_tools.invoke(agent_messages)
                                 
+                                if hasattr(initial_response, 'tool_calls') and initial_response.tool_calls:
+                                    tool_triggered = True 
+                                    st.toast("🔍 Activating AI Agent Tools...", icon="🌐") 
+                                    agent_messages.append(initial_response)
+                                    
+                                    # ☢️ FIX 2: Robust Tool Loop (Will not crash if a tool fails)
+                                    for tool_call in initial_response.tool_calls:
+                                        tool_name = tool_call['name']
+                                        tool_args = tool_call['args']
+                                        
+                                        if tool_name == "analyze_student_progress" and "user_id" not in tool_args:
+                                            tool_args["user_id"] = user_id
+                                            
+                                        tool_func = next((t for t in astra_core_tools if t.name == tool_name), None)
+                                        
+                                        if tool_func is None:
+                                            agent_messages.append(ToolMessage(content=f"Tool '{tool_name}' not available.", tool_call_id=tool_call['id']))
+                                        else:
+                                            try:
+                                                tool_result = tool_func.invoke(tool_args)
+                                                agent_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call['id']))
+                                            except Exception as te:
+                                                agent_messages.append(ToolMessage(content=f"Tool failed: {str(te)}", tool_call_id=tool_call['id']))
+                                                
+                                    # ☢️ Stream final response after tools are done
+                                    def agent_stream_generator():
+                                        for chunk in llm.stream(agent_messages): 
+                                            if hasattr(chunk, 'content'): yield str(chunk.content)
+                                    answer = st.write_stream(agent_stream_generator())
+                                    
+                            except Exception as e:
+                                # ☢️ FIX 3: 400 Error Catch. If tool reasoning fails, drop tools and answer directly!
+                                error_str = str(e).lower()
+                                if "failed to call a function" in error_str or "400" in error_str:
+                                    tool_triggered = False # Force fallback
+                                else:
+                                    st.error(f"⚠️ Agent System Error: {e}")
+                                
+                        # Fallback: If agent was disabled, tools weren't used, or 400 Error occurred
                         if not ENABLE_AGENTIC_CORE or not tool_triggered:
                             def stream_generator():
                                 for chunk in llm.stream(agent_messages):
@@ -2421,13 +2668,12 @@ Provide your clean, well-structured, non-repetitive academic analysis below:"""
                             source_text += "<div style='margin-bottom: 5px; color: #94a3b8;'>🧠 <b>Internal AI Knowledge / General Concept</b></div>"
                                 
                         source_text += "</div></details></div>"
-
-                        st.markdown("<br>", unsafe_allow_html=True)
                         
                         # Now it always attaches the source box!
                         res_text = answer + source_text
-                            
+                        
                         if needs_web and web_links:
+                            st.markdown("<br>", unsafe_allow_html=True)
                             res_text += "\n\n*(🌐 Realtime Data Powered by **GSTU AI Search**)*"
                     else:
                         res_text = answer
@@ -2467,6 +2713,7 @@ Provide your clean, well-structured, non-repetitive academic analysis below:"""
 
         st.components.v1.html("", height=0)
         st.rerun()
+        
 
     # =====================================================================
     # 📜 ROBUST AUTO-SCROLL MECHANISM
