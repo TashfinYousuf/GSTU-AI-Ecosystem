@@ -1,37 +1,29 @@
 import os
 import toml
-import secrets as secrets_module
+import os, toml, secrets as _secrets
 
 # Get the directory where THIS file lives
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STREAMLIT_DIR = os.path.join(BASE_DIR, ".streamlit")
 SECRETS_FILE = os.path.join(STREAMLIT_DIR, "secrets.toml")
 
-# 🔴 FIX: ফাইলটা যদি আগে থেকেই থাকে তবে বারবার রাইট করার দরকার নেই
-if not os.path.exists(SECRETS_FILE):
-    os.makedirs(STREAMLIT_DIR, exist_ok=True)
-    secrets_data = {
-    # app.py + auth_manager.py
-    "SUPABASE_URL":       os.environ.get("SUPABASE_URL", ""),
-    "SUPABASE_KEY":       os.environ.get("SUPABASE_KEY", ""),
-    "GROQ_API_KEY":       os.environ.get("GROQ_API_KEY", ""),
-    "GOOGLE_API_KEY":     os.environ.get("GOOGLE_API_KEY", ""),
-    "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY", ""),
-    "TAVILY_API_KEY":     os.environ.get("TAVILY_API_KEY", ""),
-    "APP_SECRET_KEY":     os.environ.get("APP_SECRET_KEY", secrets_module.token_hex(16)),
+# Read ALL env vars that start with known prefixes, write them verbatim
+_env = dict(os.environ)
 
-    # payment_manager.py — all 3 keys, exact names
+toml.dump({
+    "SUPABASE_URL":       _env.get("SUPABASE_URL", ""),
+    "SUPABASE_KEY":       _env.get("SUPABASE_KEY", ""),
+    "GROQ_API_KEY":       _env.get("GROQ_API_KEY", ""),
+    "GOOGLE_API_KEY":     _env.get("GOOGLE_API_KEY", ""),
+    "OPENROUTER_API_KEY": _env.get("OPENROUTER_API_KEY", ""),
+    "TAVILY_API_KEY":     _env.get("TAVILY_API_KEY", ""),
+    "APP_SECRET_KEY":     _env.get("APP_SECRET_KEY", _secrets.token_hex(16)),
     "sslcommerz": {
-        "STORE_ID":   os.environ.get("SSLCOMMERZ_STORE_ID", ""),
-        "STORE_PASS": os.environ.get("SSLCOMMERZ_STORE_PASS", ""),
-        "IS_SANDBOX": os.environ.get("SSLCOMMERZ_IS_SANDBOX", "true"),
+        "SSLCOMMERZ_STORE_ID":   _env.get("SSLCOMMERZ_STORE_ID", ""),
+        "SSLCOMMERZ_STORE_PASS": _env.get("SSLCOMMERZ_STORE_PASS", ""),
+        "SSLCOMMERZ_IS_SANDBOX": _env.get("SSLCOMMERZ_IS_SANDBOX", "true"),
     },
-}
-
-    with open(SECRETS_FILE, "w") as f:
-        toml.dump(secrets_data, f)
-
-    print(f"[secrets] Written to: {SECRETS_FILE}")
+}, open(SECRETS_FILE, "w"))
 # =====================================================================
 
 import re  # For detecting Bengali/French text automatically
@@ -1292,7 +1284,7 @@ def local_css(file_name):
 local_css("assets/style.css")
 
 # Enterprise Standard Secret Management
-try: groq_api_key = st.secrets["GROQ_API_KEY"]
+try: groq_api_key = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", "")
 except (KeyError, FileNotFoundError):
     load_dotenv()
     groq_api_key = os.getenv("GROQ_API_KEY")
