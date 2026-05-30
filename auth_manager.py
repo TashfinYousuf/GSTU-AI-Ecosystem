@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from supabase import create_client, Client
 from streamlit_cookies_controller import CookieController
 
@@ -8,8 +9,23 @@ controller = CookieController()
 # Initialize Supabase Client
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    # 🔴 NUCLEAR FIX: 1st priority to Render Environment Variables, 2nd to local secrets
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    
+    # If not found in Env Vars, safely try to get from secrets (for local PC)
+    if not url or not key:
+        try:
+            url = st.secrets.get("SUPABASE_URL")
+            key = st.secrets.get("SUPABASE_KEY")
+        except Exception:
+            pass
+            
+    # If still not found, stop the app safely without throwing dirty tracebacks
+    if not url or not key:
+        st.error("⚠️ SUPABASE_URL or SUPABASE_KEY is missing in Render Environment Variables!")
+        st.stop()
+        
     return create_client(url, key)
 
 supabase = init_supabase()
