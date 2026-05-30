@@ -50,23 +50,17 @@ from usage_manager import is_model_premium, check_rate_limit, increment_usage
 from auth_manager import login_user, get_user_profile, controller, supabase, get_oauth_url
 
 # =====================================================================
-# ☢️ NUCLEAR CLOUD FIX: OVERRIDE SECRETS TO PREVENT RENDER CRASH
+# ☢️ NUCLEAR CLOUD FIX: Auto-Generate secrets.toml for Render
 # =====================================================================
-try:
-    # Check if streamlit secrets exist
-    _ = st.secrets.get("dummy_test")
-except Exception:
-    # If it crashes, force Streamlit to read from Environment Variables!
-    class CloudSecrets(dict):
-        def __getitem__(self, key):
-            val = os.environ.get(key)
-            if val is None:
-                raise KeyError(f"Secret {key} missing in Environment Variables")
-            return val
-        def get(self, key, default=None):
-            return os.environ.get(key, default)
-            
-    st.secrets = CloudSecrets()
+if not os.path.exists(".streamlit/secrets.toml"):
+    os.makedirs(".streamlit", exist_ok=True)
+    with open(".streamlit/secrets.toml", "w") as f:
+        f.write(f'SUPABASE_URL = "{os.environ.get("SUPABASE_URL", "")}"\n')
+        f.write(f'SUPABASE_KEY = "{os.environ.get("SUPABASE_KEY", "")}"\n')
+        f.write(f'GROQ_API_KEY = "{os.environ.get("GROQ_API_KEY", "")}"\n')
+        f.write(f'GOOGLE_API_KEY = "{os.environ.get("GOOGLE_API_KEY", "")}"\n')
+        f.write(f'OPENROUTER_API_KEY = "{os.environ.get("OPENROUTER_API_KEY", "")}"\n')
+        f.write(f'TAVILY_API_KEY = "{os.environ.get("TAVILY_API_KEY", "")}"\n')
 
 # 🔴 1. PAGE CONFIG MUST BE THE FIRST COMMAND!
 page_icon_img = Image.open("data/logo.png") if os.path.exists("data/logo.png") else "🎓"
