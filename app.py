@@ -1,3 +1,58 @@
+import streamlit as st
+
+# 1. ⚡ SHOW UI INSTANTLY (Must be the very first Streamlit command)
+st.set_page_config(
+    page_title="GSTU IR AI",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Lightweight imports first
+import os, time
+
+# 2. ⚡ CACHE ALL HEAVY DEPENDENCIES (Runs only once)
+@st.cache_resource(show_spinner=False)
+def load_heavy_dependencies():
+    from groq import Groq
+    # Add Supabase or other clients here if needed
+    groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    return groq_client
+
+@st.cache_resource(show_spinner=False)
+def get_agent_tools():
+    from agent_tools import astra_core_tools
+    return astra_core_tools
+
+# 3. ⚡ SKELETON LOADER (Instant UX while loading)
+if "app_ready" not in st.session_state:
+    st.session_state.app_ready = False
+
+if not st.session_state.app_ready:
+    # Show smooth skeleton immediately
+    st.markdown("""
+    <div style="padding:2rem; animation:pulse 1.5s infinite;">
+        <div style="height:40px; background:rgba(148,163,184,0.15); border-radius:8px; margin-bottom:1rem; width:40%;"></div>
+        <div style="height:20px; background:rgba(148,163,184,0.1); border-radius:6px; margin-bottom:.5rem;"></div>
+        <div style="height:20px; background:rgba(148,163,184,0.1); border-radius:6px; width:70%;"></div>
+    </div>
+    <style>
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.5;} }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Load everything safely in the background
+    client = load_heavy_dependencies()
+    tools = get_agent_tools()
+    
+    # Mark as ready and rerun seamlessly
+    st.session_state.app_ready = True
+    st.rerun()
+
+
+# Main app code (CSS, UI, Chat logic) starts here...
+# =====================================================================
+
 import toml
 import os, toml, secrets as _secrets
 
@@ -64,7 +119,6 @@ import pandas as pd
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
-import streamlit as st
 
 from langchain_openai import ChatOpenAI
 from langchain_core import embeddings
@@ -1461,21 +1515,41 @@ if "current_chat_id" not in st.session_state: st.session_state.current_chat_id =
 if "selection_mode" not in st.session_state: st.session_state.selection_mode = False
 if "current_model" not in st.session_state: st.session_state.current_model = "meta-llama/llama-4-scout-17b-16e-instruct" 
 
-# 8. Initialize Models & Database
-@st.cache_resource(show_spinner=False)
-def load_central_database():
-    db_path = "./chroma_db"
-    
-    # Check if database exists
-    if not os.path.exists(db_path):
-        st.warning("⚠️ Local Database not found! Please run 'build_central_db.py' first.")
-        return None
-        
-    # Must use the exact same embedding model used during building!
-    embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
-    return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
-vectorstore = load_central_database()
+# =====================================================================
+# ⚡ UNIFIED FAST CACHED DATABASE LOADER (Zero-Crash Architecture)
+# =====================================================================
+@st.cache_resource(show_spinner=False)
+def get_chroma_db():
+    """Load ChromaDB once, cache forever — avoids Render timeout and mismatch."""
+    
+    # ডাইনামিক পাথ, যাতে ফোল্ডার যেখানেই থাকুক সে খুঁজে পায়
+    db_path = os.path.abspath(os.path.join(os.getcwd(), "chroma_db"))
+    
+    # ফোল্ডার না থাকলে অ্যাপ ক্র্যাশ না করে নিজে বানিয়ে নেবে
+    if not os.path.exists(db_path):
+        os.makedirs(db_path)
+        
+    try:
+        embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+        
+        # Load the DB into memory
+        db = Chroma(
+            persist_directory=db_path,
+            embedding_function=embeddings
+        )
+        return db
+        
+    except Exception as e:
+        print(f"⚠️ [ChromaDB Initialization Error]: {e}")
+        return None
+
+# চোখের পলকে (0ms) মেমোরি থেকে ডাটাবেস লোড হবে
+vectorstore = get_chroma_db()
+
+# 🛡️ Safe fallback
+if vectorstore is None:
+    st.warning("⚠️ System is running without Central Database context. Live Web Search is active.")
 
 
 # 🔴 MULTI-MODEL ROUTER (Universal API Switcher)
