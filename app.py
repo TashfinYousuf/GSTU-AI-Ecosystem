@@ -1516,24 +1516,30 @@ if "selection_mode" not in st.session_state: st.session_state.selection_mode = F
 if "current_model" not in st.session_state: st.session_state.current_model = "meta-llama/llama-4-scout-17b-16e-instruct" 
 
 
+import os
+import streamlit as st
+
 # =====================================================================
-# ⚡ UNIFIED FAST CACHED DATABASE LOADER (Zero-Crash Architecture)
+# ⚡ UNIFIED FAST CACHED DATABASE LOADER (Absolute Path Fix)
 # =====================================================================
 @st.cache_resource(show_spinner=False)
 def get_chroma_db():
-    """Load ChromaDB once, cache forever — avoids Render timeout and mismatch."""
+    """Load ChromaDB once, cache forever — avoids Render timeout."""
     
-    # ডাইনামিক পাথ, যাতে ফোল্ডার যেখানেই থাকুক সে খুঁজে পায়
-    db_path = os.path.abspath(os.path.join(os.getcwd(), "chroma_db"))
+    # 🔴 FIX 4: Absolute Path (Must match build_central_db.py exactly)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(BASE_DIR, "chroma_db")
     
-    # ফোল্ডার না থাকলে অ্যাপ ক্র্যাশ না করে নিজে বানিয়ে নেবে
     if not os.path.exists(db_path):
-        os.makedirs(db_path)
-        
+        print("⚠️ ChromaDB folder not found!")
+        return None   
+            
     try:
+        from langchain_community.vectorstores import Chroma
+        from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+        
         embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
         
-        # Load the DB into memory
         db = Chroma(
             persist_directory=db_path,
             embedding_function=embeddings
@@ -1546,10 +1552,6 @@ def get_chroma_db():
 
 # চোখের পলকে (0ms) মেমোরি থেকে ডাটাবেস লোড হবে
 vectorstore = get_chroma_db()
-
-# 🛡️ Safe fallback
-if vectorstore is None:
-    st.warning("⚠️ System is running without Central Database context. Live Web Search is active.")
 
 
 # 🔴 MULTI-MODEL ROUTER (Universal API Switcher)
