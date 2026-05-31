@@ -2,7 +2,7 @@ import streamlit as st
 
 # 1. ⚡ SHOW UI INSTANTLY (Must be the very first Streamlit command)
 st.set_page_config(
-    page_title="GSTU IR AI",
+    page_title="GSTU IR Assistant",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -21,8 +21,12 @@ def load_heavy_dependencies():
 
 @st.cache_resource(show_spinner=False)
 def get_agent_tools():
+    """Importing inside the function prevents blocking on app startup."""
     from agent_tools import astra_core_tools
     return astra_core_tools
+
+# Get the tools instantly from cache
+astra_core_tools = get_agent_tools()
 
 # 3. ⚡ SKELETON LOADER (Instant UX while loading)
 if "app_ready" not in st.session_state:
