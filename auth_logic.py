@@ -1,4 +1,8 @@
 import os
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)
+
 import time
 import logging
 import streamlit as st

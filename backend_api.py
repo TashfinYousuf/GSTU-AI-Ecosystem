@@ -17,9 +17,14 @@ from langchain_community.vectorstores import SupabaseVectorStore
 from supabase import create_client, Client
 from groq import Groq
 from tavily import TavilyClient
-from fastapi import Request, Form
+from fastapi import Request
 from supabase import create_client, Client
 from fastapi.responses import RedirectResponse
+
+# 🟢 Local AI Architect Imports (Agentic Engine)
+from memory_db import get_or_create_student_profile
+from analytics_engine import generate_progress_report
+from core_agents import generate_cgpa_boost_plan
 
 
 # Load Environment Variables (.env)
@@ -81,6 +86,11 @@ class ChatRequest(BaseModel):
     model: str = "llama-3.1-8b-instant"
     context_from_files: str = ""
 
+# 🟢 Agentic System Models
+class StudentRequest(BaseModel):
+    user_id: str
+    email: str = None
+    name: str = None
 
 # =====================================================================
 # 🛠️ HELPER FUNCTIONS
@@ -96,6 +106,39 @@ def route_query(query: str):
     elif any(x in q for x in ["foreign policy", "diplomacy"]): return "IR-202"
     elif any(x in q for x in ["french", "france"]): return "French"
     return "General"
+
+
+# =====================================================================
+# 🌟 THE AGENTIC ACADEMIC OS ENDPOINTS
+# =====================================================================
+@app.get("/api/v1/academic/analytics/{user_id}")
+async def get_student_analytics(user_id: str):
+    """ফ্রন্টএন্ড থেকে কল করলে ইউজারের উইকনেস এবং প্রোগ্রেস রিপোর্ট পাঠাবে।"""
+    try:
+        report = generate_progress_report(user_id)
+        return {"status": "success", "data": report}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch analytics: {e}")
+
+
+@app.post("/api/v1/academic/generate-plan")
+async def create_study_plan(req: StudentRequest):
+    """এজেন্টিক ব্রেইনকে ট্রিগার করবে ইউজারের জন্য ৭-দিনের রুটিন বানানোর জন্য।"""
+    try:
+        if req.email and req.name:
+            get_or_create_student_profile(req.user_id, req.email, req.name)
+            
+        result = generate_cgpa_boost_plan(req.user_id)
+        
+        if result.get("status") == "success":
+            return {
+                "message": "AI successfully generated and saved your CGPA Boost Plan!", 
+                "data": result["plan"]
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get("message", "Unknown error"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================

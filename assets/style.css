@@ -84,62 +84,63 @@ div[data-testid="collapsedControl"]::after {
 }
 
 
-/* ===================================================
-   ৩. GEMINI STYLE SIDEBAR BUTTONS
-=================================================== */
-[data-testid="stSidebar"] .stButton > button {
-    border: 1px solid transparent !important;
-    border-radius: 8px !important;
-    background-color: transparent !important;
-    text-align: left !important;
-    justify-content: flex-start !important;
-    padding-left: 10px !important;
-    box-shadow: none !important;
-    transition: all 0.3s ease !important;
-}
+/* 🔴 3. FIX UPPER SIDEBAR (Unblocks the Logo Area completely) */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:first-child {
+        position: relative !important;
+        background: transparent !important;
+        margin-top: 0 !important; 
+        padding-top: 0 !important; 
+        border: none !important;
+        z-index: 1 !important;
+    }
 
-[data-testid="stSidebar"] .stButton > button:hover {
-    background-color: rgba(150, 150, 150, 0.1) !important;
-    border: 1px solid rgba(200, 200, 200, 0.2) !important;
-    transform: translateX(4px) !important;
-}
+    /* 🔴 4. DEFAULT SIDEBAR BUTTONS (Recent Chats) - LEFT ALIGNED & SLIDE HOVER */
+    [data-testid="stSidebar"] .stButton > button {
+        border: 1px solid transparent !important; 
+        border-radius: 8px !important;
+        background-color: transparent !important; 
+        display: flex !important;
+        align-items: center !important; 
+        justify-content: flex-start !important;
+        padding-left: 10px !important; 
+        box-shadow: none !important; 
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stSidebar"] .stButton > button p {
+        text-align: left !important; 
+        margin: 0 !important;
+        overflow: hidden !important; 
+        text-overflow: ellipsis !important; 
+        white-space: nowrap !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: rgba(150, 150, 150, 0.1) !important;
+        border: 1px solid rgba(200, 200, 200, 0.2) !important;
+        transform: translateX(4px) !important; /* Slides right slightly */
+        color: #10a37f !important;
+    }
 
-/* ===================================================
-   ৪. CHATGPT FLUID DYNAMIC UX (তোর অরিজিনাল ম্যাজিক)
-=================================================== */
+    /* 🔴 5. TOP GRID & ACTION BUTTONS (New Chat, Save, Create Project) - CENTERED & FLOAT HOVER */
+    [data-testid="stSidebar"] [data-testid="column"] .stButton > button,
+    .action-btn-wrap button {
+        justify-content: center !important; 
+        padding-left: 0 !important;
+        background-color: rgba(128,128,128,0.08) !important; /* Subtle glass button look */
+        border: 1px solid rgba(128,128,128,0.2) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="column"] .stButton > button p,
+    .action-btn-wrap button p {
+        text-align: center !important; 
+        justify-content: center !important;
+    }
+    [data-testid="stSidebar"] [data-testid="column"] .stButton > button:hover,
+    .action-btn-wrap button:hover {
+        transform: translateY(-2px) !important; /* Pops up instead of sliding right */
+        background-color: rgba(16,163,127,0.1) !important; 
+        color: #10a37f !important;
+    }
 
-.block-container { 
-    max-width: 850px !important; 
-    padding-top: 4.5rem !important; 
-    padding-bottom: 6rem !important;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important; 
-}
-
-div[data-testid="stChatMessage"] {
-    width: 100% !important;
-}
-
-div[data-testid="stChatInput"] { 
-    background-color: var(--secondary-background-color) !important; 
-    border-radius: 24px !important; 
-    border: 1px solid rgba(128,128,128,0.4) !important; 
-    max-width: 850px !important; 
-    width: 100% !important;
-    margin: 0 auto !important; 
-    overflow: hidden !important; 
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-div[data-testid="stChatInput"]:focus-within { 
-    border: 1px solid #10a37f !important; 
-    box-shadow: 0 0 4px rgba(16, 163, 127, 0.4) !important; 
-}
-
-div[data-testid="stChatInput"] > div, div[data-testid="stChatInput"] textarea { 
-    border: none !important; 
-    box-shadow: none !important; 
-    outline: none !important; 
-}
 
 /* ===================================================
    ৫. CLEAN UI BUBBLES & MODALS
@@ -157,7 +158,7 @@ div[data-testid="stSidebar"] button[kind="secondary"] {
 }
 
 [data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"] { 
-    border: 1px solid rgba(128,128,128,0.3) !important; 
+    border: 1px solid rgba(255, 255, 255, 0.3) !important; 
     border-radius: 8px !important; 
     background-color: var(--secondary-background-color) !important; 
     box-shadow: none !important; 
@@ -168,7 +169,7 @@ div[data-testid="stChatMessage"]:has(div:contains("🧑‍💻")) {
     background-color: var(--secondary-background-color); 
     border-radius: 18px 18px 0 18px; 
     flex-direction: row-reverse; 
-    border: 1px solid rgba(128,128,128,0.2); 
+    border: 1px solid rgba(255, 255, 255, 0.3); 
 }
 div[data-testid="stChatMessage"]:has(div:contains("✨")) { background-color: transparent; }
 
@@ -373,3 +374,542 @@ div[data-testid="stFileUploader"]:hover {
     display: block !important;
     visibility: visible !important;
 }
+
+
+/* =====================================================================
+   🎓 GSTU IR AI - UNIFIED MODERN CSS ARCHITECTURE
+===================================================================== */
+
+/* ─── 1. STREAMLIT CORE OVERRIDES (Anti-Flash & Smoothness) ─── */
+.stApp { animation: gstu-fadein 0.2s ease-out both !important; }
+@keyframes gstu-fadein { from { opacity: 0; } to { opacity: 1; } }
+
+[data-testid="stAppViewBlockContainer"] { transition: none !important; }
+.stSpinner, [data-testid="stStatusWidget"] { display: none !important; visibility: hidden !important; }
+.stException { display: none !important; }
+
+/* ─── 2. TYPOGRAPHY & SAFE FONTS ─── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+p, h1, h2, h3, h4, li, .stChatMessage {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    -webkit-font-smoothing: antialiased !important;
+}
+h1 { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.5px !important; }
+h2 { font-size: 24px !important; font-weight: 600 !important; }
+@keyframes textGlow {
+    0% { text-shadow: 0 0 10px rgba(16,163,127,0.2); }
+    50% { text-shadow: 0 0 20px rgba(16,163,127,0.6); }
+    100% { text-shadow: 0 0 10px rgba(16,163,127,0.2); }
+}
+h1 { animation: textGlow 3s infinite alternate !important; }
+
+
+/* ─── 3. CHAT LAYOUT & INPUT BOX (Slim & Lowered) ─── */
+footer { display: none !important; visibility: hidden !important; }
+
+.block-container { 
+    max-width: 100% !important; padding-top: 3.5rem !important; 
+    /* 🔴 Adjusted bottom padding since the input box is now slimmer */
+    padding-bottom: 95px !important; transition: max-width 0.3s !important; 
+}
+
+[data-testid="stBottom"] {
+    position: sticky !important; bottom: 0 !important; 
+    /* 🔴 Padding: Top 5px, Left/Right 0, Bottom 15px (Slimmer & Lower) */
+    padding: 5px 0 15px !important; 
+    z-index: 9999 !important; width: 100% !important;
+    
+    background: rgba(10, 15, 30, 0.98) !important; 
+    backdrop-filter: blur(20px) !important; -webkit-backdrop-filter: blur(20px) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+[data-testid="stBottom"] ~ div, [data-testid="stBottom"] + div { display: none !important; }
+
+
+/* Hide stray divs below input */
+[data-testid="stBottom"] ~ div, [data-testid="stBottom"] + div { display: none !important; }
+
+/* ─── 4. MESSENGER CHAT BUBBLES ─── */
+[data-testid="stChatMessage"] { background: transparent !important; border: none !important; padding: 4px 16px !important; display: flex !important; width: 100% !important;}
+/* USER (Right) */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) { flex-direction: row-reverse !important; }
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] {
+    background: linear-gradient(135deg, #10a37f, #0d8a6a) !important; color: #fff !important;
+    border-radius: 18px 4px 18px 18px !important; padding: 10px 14px !important; max-width: 75% !important; margin-right: 8px !important;
+    box-shadow: 0 2px 8px rgba(16,163,127,0.2) !important;
+}
+/* AI (Left) */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] {
+    background: rgba(255,255,255,0.06) !important; border: 0.5px solid rgba(255,255,255,0.1) !important;
+    border-radius: 4px 18px 18px 18px !important; padding: 12px 16px !important; max-width: 80% !important; margin-left: 8px !important;
+}
+
+/* ─── AI RESPONSE TYPOGRAPHY (Perfect Balanced Scale) ─── */
+
+/* Wrapper specificity booster */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h1,
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h3,
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h4 {
+    animation: none !important;
+    text-shadow: none !important;
+    letter-spacing: -0.2px !important;
+    color: #ffffff !important;
+    font-family: 'Inter', sans-serif !important;
+    margin-bottom: 8px !important;
+}
+
+/* 🔴 MAIN HEADING (H1) — 24px (সবার বড়) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h1 {
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    margin-top: 20px !important;
+}
+
+/* 🔴 SUB-HEADINGS (H2: Introduction etc.) — 20px */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2 {
+    font-size: 20px !important;
+    font-weight: 500 !important;
+    margin-top: 16px !important;
+}
+
+/* 🔴 MINOR HEADINGS (H3/H4) — 18px */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h3
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h4{
+    font-size: 18px !important;
+    font-weight: 500 !important;
+    color: #e2e8f0 !important;
+    margin-top: 14px !important;
+}
+
+/* 🔴 BODY TEXT (P) — 16px (স্ট্যান্ডার্ড রিডিং সাইজ) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {
+    font-size: 16px !important;
+    line-height: 1.7 !important;
+    color: #ffffff !important;
+    font-weight: 400 !important;
+    margin-bottom: 8px !important;
+}
+
+/* 🔴 LIST ITEMS (Li) — 16.5px (লিস্টগুলো যেন ক্লিয়ার থাকে) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li {
+    font-size: 16px !important;
+    line-height: 1.65 !important;
+    color: #ffffff !important;
+    margin-bottom: 6px !important;
+}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ul li::marker { color: #ffffff !important; }
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ol li::marker { color: #ffffff !important; }
+
+/* 🔴 BOLD TEXT — 16.5px (পয়েন্টগুলো চোখে পড়ার জন্য) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2 {
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    color: #ffffff !important;
+}
+
+/* 🔴 REFERENCES (যাতে হেডিংয়ের মতো লাগে) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p:has(strong:only-child) {
+    margin-top: 18px !important;
+    margin-bottom: 8px !important;
+}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p > strong:only-child {
+    font-size: 18px !important; /* H3 এর সাইজ দেওয়া হলো */
+    font-weight: 600 !important;
+    color: #ffffff !important; 
+    text-transform: capitalize !important;
+}
+
+/* ─── GLOBAL FIXES (Outside Chat) ─── */
+/* Also fix global h1/h2 outside chat — remove giant size */
+h1 { font-size: 24px !important; animation: none !important; text-shadow: none !important; }
+h2 { font-size: 20px !important; }
+h3 { font-size: 17px !important; }
+
+/* Only the hero welcome title gets the glow */
+.gstu-hero-title { animation: textGlow 3s infinite alternate !important; }
+
+/* ─── 5. STICKY SIDEBAR & HEADER ─── */
+[data-testid="stSidebar"] {
+    background-color: rgba(10, 15, 30, 0.4) !important;
+    backdrop-filter: blur(25px) !important;
+    -webkit-backdrop-filter: blur(25px) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 🔴 MAGIC FIX: Instead of hitting all buttons, we ONLY target the container holding the Logo/Header! */
+[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(.gstu-sidebar-header) {
+    position: sticky !important; 
+    top: 0 !important; 
+    z-index: 999999 !important;
+
+    /* 🔴 Solid Background only for the actual header */
+    background: rgba(15, 23, 42, 0.98) !important;
+    backdrop-filter: blur(25px) !important;
+    -webkit-backdrop-filter: blur(25px) !important;
+    
+    /* 🔴 Margin & Padding fix to seal the top gap */
+    margin-top: -2rem !important;
+    padding-top: 2rem !important;
+    padding-bottom: 15px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Force buttons to stay below the sticky header */
+[data-testid="stSidebar"] div[data-testid="stButton"] {
+    z-index: 1 !important; 
+}
+
+/* 2. SIDEBAR NUCLEAR BLACK BOX REMOVAL */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div,
+[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > div,
+[data-testid="stSidebar"] [data-testid="element-container"] {
+    /* Ensures no other nested div accidentally gets a background */
+    background: transparent !important; 
+    background-color: transparent !important;
+    border: none !important; 
+    box-shadow: none !important;
+}
+
+/* 3. SIDEBAR BUTTONS */
+
+/* 🔴 Kill Streamlit's hidden Navy/Black button wrappers in the sidebar */
+[data-testid="stSidebar"] div[data-testid="stButton"],
+[data-testid="stSidebar"] div[data-testid="stButton"] > div {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+/* -> RECENT CHATS (Left Alignment) */
+[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    display: flex !important; justify-content: flex-start !important; align-items: center !important;
+    padding: 8px 12px !important; border-radius: 8px !important; color: inherit !important;
+    width: 100% !important; transition: all 0.2s ease !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button * {
+    text-align: left !important; justify-content: flex-start !important; margin: 0 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button p {
+    overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+}
+
+/* 🔴 HOVER FIX: Green glow + White Text */
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover { 
+    background: rgba(16, 163, 127, 0.15) !important; 
+    color: #ffffff !important; 
+}
+/* Force internal text/icons to become white on hover */
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover p,
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover * { 
+    color: #ffffff !important; 
+}
+
+/* 🔴 TOP GRID BUTTONS (New Chat, Save To, etc.) - Centered & Normal */
+[data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] > button {
+    justify-content: center !important;
+    background-color: rgba(128,128,128,0.08) !important;
+    border: 1px solid rgba(128,128,128,0.2) !important;
+}
+[data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] > button * {
+    text-align: center !important; justify-content: center !important;
+}
+
+/* 🔴 HOVER FIX: Green glow + White Text */
+[data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] > button:hover {
+    background-color: rgba(16, 163, 127, 0.15) !important; 
+    border-color: #10a37f !important;
+    color: #ffffff !important;
+}
+/* Force internal text/icons to become white on hover */
+[data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] > button:hover p,
+[data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] > button:hover * {
+    color: #ffffff !important;
+}
+
+/* 4. PREMIUM ACCOUNT BUTTON */
+div[data-testid="stPopover"] > button {
+    background: transparent !important; color: inherit !important;
+    border: 1px solid rgba(128, 128, 128, 0.4) !important; border-radius: 10px !important;
+    font-weight: 600 !important; transition: all 0.3s ease !important; padding: 6px 16px !important;
+}
+div[data-testid="stPopover"] > button:hover {
+    background: #10a37f !important; color: white !important; border-color: #10a37f !important;
+}
+
+.gstu-sidebar-header { margin-top: -15px !important; margin-bottom: 25px !important; display: flex; align-items: center; justify-content: center !important; width: 100%; }
+.gstu-home-link { text-decoration: none !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 12px !important; }
+.gstu-home-text { margin: 0 !important; font-size: 24px !important; font-weight: 900 !important; color: white !important; letter-spacing: -0.5px !important; transition: color 0.3s ease !important; }
+.gstu-home-link:hover .gstu-home-text { color: #10a37f !important; }
+
+
+/* ─── 6. CUSTOM COMPONENTS (Uploader, Sources, Spinners) ─── */
+[data-testid="stFileUploadDropzone"] { border: 2px dashed rgba(255, 255, 255, 0.3) !important; border-radius: 16px !important; background: rgba(30,30,30,0.4) !important; transition: all 0.3s !important; pointer-events: auto !important; z-index: 99 !important; }
+[data-testid="stFileUploadDropzone"]:hover { border-color: #10a37f !important; background-color: rgba(16, 163, 127, 0.05) !important; }
+[data-testid="stUploadedFile"] { background: rgba(20, 20, 20, 0.6) !important; border-radius: 8px !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; }
+
+/* Sources Pills */
+.source-pill, .source-chip {
+    display: inline-flex; align-items: center; background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #94a3b8; text-decoration: none; transition: all 0.2s ease;
+}
+.source-pill:hover, .source-chip:hover { border-color: #10a37f; background: rgba(16, 163, 127, 0.15); color: #fff; transform: translateY(-2px); }
+.realtime-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(16,163,127,0.12); border: 0.5px solid rgba(16,163,127,0.35); color: #10a37f; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; margin-top: 14px; margin-bottom: 6px; width: fit-content; }
+
+/* AI Spinner - Force Visible */
+.gstu-thinking { 
+    display: flex !important; align-items: center !important; gap: 10px !important; 
+    padding: 10px 14px !important; background: rgba(255,255,255,0.05) !important; 
+    border-radius: 18px 18px 18px 4px !important; border: 0.5px solid rgba(255,255,255,0.1) !important; 
+    width: fit-content !important; margin: 4px 0 4px 0px !important; 
+}
+.gstu-thinking-dots span { 
+    width: 7px !important; height: 7px !important; background: #10a37f !important; 
+    border-radius: 50% !important; animation: gstu-bounce 1.2s infinite !important; 
+    display: inline-block !important; margin: 0 2px !important; 
+}
+.gstu-thinking-dots span:nth-child(2) { animation-delay: 0.2s !important; } 
+.gstu-thinking-dots span:nth-child(3) { animation-delay: 0.4s !important; }
+@keyframes gstu-bounce { 0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; } 40% { transform: scale(1.1); opacity: 1; } }
+.gstu-thinking-text { color: #10a37f !important; font-size: 13px !important; font-weight: 500 !important; }
+
+
+/* ─── 7. LOGIN SPECIFICS & MOBILE QUERIES ─── */
+.login-wrapper { background: radial-gradient(circle at top, rgba(16, 163, 127, 0.1), transparent 70%); padding: 30px; border-radius: 20px; }
+.modern-logo { width: 85px; height: 85px; border-radius: 20px; object-fit: scale-down; background-color: rgba(255,255,255,0.9); padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); margin-bottom: 15px; }
+.login-container { animation: fadeInSlide 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+@keyframes fadeInSlide { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+
+/* ─── 9. SPLASH / LOADING SCREEN ─── */
+.supreme-splash { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #05080f; z-index: 999999999; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: splashFade 0.4s ease-in-out 1.2s forwards; }
+.supreme-splash-text { color: #10a37f; font-family: 'Inter', sans-serif; font-size: 24px; font-weight: 800; animation: pulse 1.5s infinite ease-in-out; letter-spacing: -0.5px; }
+@keyframes pulse { 0% { opacity: 0.6; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.6; transform: scale(0.98); } }
+@keyframes splashFade { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+
+
+/* 🔴 1. USER BUBBLE (ChatGPT Style - Premium Look) */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p {
+    font-size: 16px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    color: #ffffff !important;
+    background: #2f2f2f !important; /* Dark ChatGPT style background */
+    padding: 12px 18px !important;
+    border-radius: 18px !important;
+    display: inline-block !important;
+    margin: 0 !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background-color: transparent !important;
+}
+
+/* 🔴 2. BUTTON HOVER GLOW EFFECTS (Restored!) */
+div[data-testid="stButton"] > button {
+    transition: all 0.3s ease !important;
+}
+div[data-testid="stButton"] > button:hover {
+    background-color: #10a37f !important;
+    color: #ffffff !important;
+    border-color: #10a37f !important;
+    box-shadow: 0 0 15px rgba(16, 163, 127, 0.6) !important;
+    transform: translateY(-2px);
+}
+
+/* 🔴 SIDEBAR CHAT ALIGNMENT FIX (ChatGPT Style) */
+[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] div[data-testid="stButton"] button {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 14px !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+}
+[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] div[data-testid="stButton"] button p {
+    font-size: 14.5px !important;
+    text-align: left !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+
+/* =====================================================================
+   🎯 ULTIMATE PREMIUM CHAT UI (ChatGPT/Gemini Aesthetic)
+===================================================================== */
+
+/* 1. CHAT INPUT BOX (Rounded & Perfectly Floating) */
+div[data-testid="stChatInput"] {
+    background-color: #2f2f2f !important; /* Premium Dark */
+    border-radius: 28px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 2px 15px !important;
+    max-width: 800px !important;
+    margin: 0 auto 20px auto !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+div[data-testid="stChatInput"]:focus-within {
+    border-color: #10a37f !important;
+    box-shadow: 0 0 10px rgba(16, 163, 127, 0.3) !important;
+}
+
+div[data-testid="stChatInput"] textarea {
+    color: white !important;
+    font-size: 16px !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* 2. RECENT CHATS (Left Align + Green Selection Bar) */
+[data-testid="stSidebar"] button {
+    background: transparent !important;
+    border: none !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 10px 15px !important;
+    border-radius: 8px !important;
+    color: #b3b3b3 !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Hover Effect: Glass Green Glow */
+[data-testid="stSidebar"] button:hover {
+    background: rgba(16, 163, 127, 0.1) !important;
+    color: #10a37f !important;
+}
+
+/* ACTIVE INDICATOR (The Green Bar) */
+.recent-chat-active {
+    background: rgba(16, 163, 127, 0.15) !important;
+    color: #10a37f !important;
+    border-left: 4px solid #10a37f !important; /* The Green Bar */
+    font-weight: 600 !important;
+}
+
+/* 3. BUTTONS (Standard Green Hover) */
+section[data-testid="stMain"] div[data-testid="stButton"] button:hover {
+    background-color: #10a37f !important;
+    color: #ffffff !important;
+    border-color: #10a37f !important;
+}
+
+
+    /* ===================================================================== */
+    /* 🎨 ULTIMATE PREMIUM UI (Glassmorphism, Round Input, Safe Hover)       */
+    /* ===================================================================== */
+    
+    /* 1. COMPACT UI & LARGER COLLAPSE ARROW */
+    html, body, [class*="st-"] { font-size: 14px !important; }
+    .block-container { max-width: 95% !important; padding-top: 1.5rem !important; }
+    [data-testid="stSidebarCollapseButton"] { transform: scale(1.5) !important; }
+    [data-testid="stSidebarCollapseButton"] svg { color: inherit !important; }
+    
+    /* 2. HEADER FIX & NAVY BAR KILLER */
+    header[data-testid="stHeader"] { 
+        background: transparent !important; 
+        box-shadow: none !important; 
+    }
+    [data-testid="stBottom"], 
+    [data-testid="stBottomBlockContainer"], 
+    div[data-testid="stBottom"] > div {
+        background: transparent !important;
+        border: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    /* 3. PERFECT STANDARD CHAT INPUT (ChatGPT/Gemini Style) */
+    div[data-testid="stChatInput"] { 
+        background-color: transparent !important; 
+        border: none !important; 
+        box-shadow: none !important; 
+        padding-bottom: 20px !important; 
+    }
+    div[data-testid="stChatInput"] > div > div {
+        background-color: rgba(15, 23, 42, 0.85) !important; 
+        border-radius: 30px !important; 
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        padding: 5px 18px !important;
+        max-width: 850px !important;
+        margin: 0 auto !important;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.4) !important;
+        backdrop-filter: blur(15px) !important;
+    }
+    div[data-testid="stChatInput"] > div > div:focus-within {
+        border-color: #10a37f !important;
+        box-shadow: 0 0 15px rgba(16, 163, 127, 0.4) !important;
+    }
+    div[data-testid="stChatInput"] > div > div > div { 
+        border: none !important; background: transparent !important; box-shadow: none !important; 
+    }
+    div[data-testid="stChatInput"] textarea { 
+        color: white !important; font-family: 'Inter', sans-serif !important; font-size: 15px !important; 
+    }
+
+    /* 4. SIDEBAR NUCLEAR BLACK BOX REMOVAL */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div,
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > div,
+    [data-testid="stSidebar"] [data-testid="element-container"] {
+        background: transparent !important; border: none !important; box-shadow: none !important;
+    }
+
+    /* 5. SIDEBAR RECENT CHATS (Left Aligned & Green Hover) */
+    [data-testid="stSidebar"] div[data-testid="stButton"] button {
+        background-color: transparent !important; border: 1px solid transparent !important; 
+        border-radius: 8px !important; display: flex !important; justify-content: flex-start !important; 
+        align-items: center !important; padding: 10px 12px !important; width: 100% !important; 
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button p {
+        font-family: 'Inter', sans-serif !important; font-size: 14.5px !important; color: #e2e8f0 !important; 
+        margin: 0 !important; text-align: left !important; width: 100% !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        background-color: rgba(16, 163, 127, 0.12) !important; border-color: rgba(16, 163, 127, 0.4) !important; 
+        box-shadow: 0 0 12px rgba(16, 163, 127, 0.2) !important; transform: translateX(3px) !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover p { color: #10a37f !important; }
+
+    /* 6. TOP GRID BUTTONS EXCEPTION (Centered) */
+    [data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] button {
+        justify-content: center !important; background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important; margin-left: 8px !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="column"] div[data-testid="stButton"] button p { text-align: center !important; }
+
+    /* 7. ACCOUNT SETTINGS DIALOG (Wide & Left Aligned) */
+    div[role="dialog"] {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 16px !important;
+        padding: 30px !important; box-shadow: 0 25px 50px rgba(0,0,0,0.6) !important;
+        width: 90vw !important; max-width: 850px !important;
+    }
+    div[role="dialog"] h1, div[role="dialog"] h2, div[role="dialog"] h3 {
+        font-weight: 800 !important; color: white !important; text-align: left !important; margin-bottom: 20px !important;
+    }
+    div[role="dialog"] div[data-testid="stMarkdownContainer"] p, div[role="dialog"] div[data-testid="stMarkdownContainer"] strong {
+        text-align: left !important; font-size: 15.5px !important; line-height: 1.8 !important; color: #e2e8f0 !important;
+    }
+
+    /* 8. PREMIUM ACCOUNT FLOATING PILL */
+    div[data-testid="stPopover"] > button {
+        border-radius: 50px !important; padding: 6px 20px !important; background: rgba(15, 23, 42, 0.6) !important;
+        border: 1px solid rgba(255,255,255,0.2) !important; font-weight: 600 !important; 
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important; transition: all 0.3s ease !important; color: #ffffff !important;
+    }
+    div[data-testid="stPopover"] > button:hover {
+        border-color: #10a37f !important; background: rgba(16, 163, 127, 0.15) !important; transform: translateY(-2px) !important;
+    }
+    
+    /* 9. MAIN BUTTONS (Solid Green) */
+    section[data-testid="stMain"] div[data-testid="stButton"] button { transition: all 0.3s ease !important; }
+    section[data-testid="stMain"] div[data-testid="stButton"] button:hover {
+        background-color: #10a37f !important; color: #ffffff !important; border-color: #10a37f !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(16, 163, 127, 0.4) !important;
+    }
+    section[data-testid="stMain"] div[data-testid="stButton"] button:hover p { color: #ffffff !important; }
