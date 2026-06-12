@@ -2,16 +2,16 @@
 streamlit
 streamlit-cookies-controller
 
-# --- AI & LangChain Ecosystem ---
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-community>=0.3.0
-langchain-google-genai
-langchain-groq
-langchain-openai
-langchain-pinecone==0.2.0
+# --- AI & LangChain Ecosystem (Strictly Aligned Generation) ---
+langchain==0.2.16
+langchain-core==0.2.43
+langchain-community==0.2.17
+langchain-google-genai==1.0.10
+langchain-groq==0.1.10
+langchain-openai==0.1.25
+langchain-pinecone==0.1.3
 
-# --- Vector DB & Search (STRICT FIX APPLIED HERE) ---
+# --- Vector DB & Search (Bypasses the DeprecatedPluginError natively) ---
 pinecone-client==4.1.1
 tavily-python
 
