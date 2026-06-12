@@ -108,6 +108,47 @@ def local_css(file_name):
 
 local_css("assets/style.css")
 
+# =====================================================================
+# 📱 MOBILE RESPONSIVENESS (Fixes Sidebar Overlap & Buttons)
+# =====================================================================
+st.markdown("""
+    <style>
+    @media (max-width: 768px) {
+        /* 1. Fix Sidebar Overlap: Let Streamlit handle mobile drawer natively */
+        [data-testid="stSidebar"] {
+            min-width: 0px !important;
+            max-width: 85vw !important;
+        }
+        
+        /* 2. Fix Reaction Buttons: Force them into a single horizontal row */
+        [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            gap: 5px !important;
+            padding-bottom: 5px !important;
+        }
+        [data-testid="stChatMessage"] div[data-testid="column"] {
+            width: auto !important;
+            min-width: max-content !important;
+            flex: 0 0 auto !important;
+        }
+        
+        /* 3. General Mobile Spacing & Padding */
+        .block-container {
+            padding-left: 15px !important;
+            padding-right: 15px !important;
+        }
+        
+        /* 4. Fix input box cutoff on mobile */
+        div[data-testid="stChatInput"] > div > div {
+            padding: 2px 10px !important;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 
 # =====================================================================
 # 🗄️ 3. CENTRAL DATABASE & FILELOCK MANAGER
@@ -3579,9 +3620,7 @@ if llm:
         if not isinstance(msg, dict) or "role" not in msg or "content" not in msg: continue
         avatar = "🧑‍💻" if msg["role"] == "user" else "✨"
         with chat_container.chat_message(msg["role"], avatar=avatar):
-            if msg["role"] == "assistant":
-                # 🔴 XSS PREVENTED: Never blindly trust AI output with unsafe_allow_html=True
-                st.markdown(msg["content"])
+            if msg["role"] == "assistant": st.markdown(msg["content"], unsafe_allow_html=True)
             else: st.markdown(msg["content"])
             
             if msg["role"] == "assistant":

@@ -1,29 +1,29 @@
-fastapi
-uvicorn
-pydantic
-streamlit
-toml
-supabase
-chromadb>=0.4.0
-langchain-community>=0.2.0
-fastembed>=0.2.0
-langchain
-pinecone>=3.0.0
-langchain-pinecone>=0.1.0
-pinecone-client==3.2.2
-langchain-google-genai
-langchain-groq
-langchain-openai
-tavily-python
-groq
-python-dotenv
-pypdf
-fpdf
+# --- Core UI & Server ---
+streamlit==1.49.1
 streamlit-cookies-controller
-pandas
-numpy
-python-multipart
-langchain-core
-langchain-community
-SQLAlchemy
+
+# --- AI & LangChain Ecosystem (Locked for Stability) ---
+langchain==0.3.27
+langchain-core==0.3.74
+langchain-community==0.3.27
+langchain-google-genai==2.1.9
+langchain-groq==0.3.7
+langchain-openai
+langchain-pinecone==0.2.13
+
+# --- Vector DB & Search ---
+pinecone-client==5.0.1
+tavily-python
+
+# --- Database & Auth ---
+supabase
 redis
+sqlalchemy
+
+# --- Utilities & Data Processing ---
+python-dotenv
+pandas
+pypdf
+filelock
+Pillow
+fpdf
