@@ -239,8 +239,6 @@ def render_auth_interface():
                         res = supabase.auth.sign_up({"email": new_email, "password": new_pass, "options": {"data": {"full_name": new_name, "role": "Student", "department": new_dept}}})
                         if res: 
                             st.success("Check email to verify!")
-                            import time
-                            time.sleep(2)
                             st.session_state.auth_mode = "login"
                             st.rerun()
                     except Exception as e: st.error(f"Sign Up Failed: {e}")

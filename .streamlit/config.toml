@@ -8,5 +8,10 @@ font = "sans serif"
 [server]
 enableCORS = false
 enableXsrfProtection = false
+enableStaticServing = true
 port = 8501
 headless = true
+
+[browser]
+# This prevents the UI from trying to collect stats, making it snappier
+gatherUsageStats = false

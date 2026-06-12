@@ -23,3 +23,7 @@ streamlit-cookies-controller
 pandas
 numpy
 python-multipart
+langchain-core
+langchain-community
+SQLAlchemy
+redis

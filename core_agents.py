@@ -1,14 +1,19 @@
 # core_agents.py
 import os
+import re
 import json
 import traceback
 import logging
 import random
 import datetime
+from langchain_groq import ChatGroq
+import streamlit as st
 from dotenv import load_dotenv
 
 # LangChain Imports
 from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -20,24 +25,84 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def intent_router(query: str):
+    """
+    Layer 1: Classifies user query to save 50%+ API costs.
+    Returns: 'greeting', 'live_news', 'research', or 'academic_rag'
+    """
+    query_lower = query.lower()
+    
+    # 1. Greetings & Simple Chitchat (0 RAG, 0 Web Search cost)
+    greetings = ["hi", "hello", "hey", "thanks", "thank you", "good morning", "how are you", "who are you"]
+    if query_lower in greetings or len(query_lower.split()) <= 2:
+        return "greeting"
+        
+    # 2. Live News / Contemporary Events (Requires Web Search)
+    news_keywords = ["recent", "news", "update", "now", "today", "2025", "2026", "current event"]
+    if any(word in query_lower for word in news_keywords):
+        return "live_news"
+        
+    # 3. Complex Research / Compare (Requires Heavy Model)
+    research_keywords = ["compare", "analyze", "literature review", "critique", "thesis"]
+    if any(word in query_lower for word in research_keywords):
+        return "research"
+        
+    # 4. Default: Core Academic Questions (RAG Only)
+    return "academic_rag"
+
+
 # ==========================================
 # 1. LLM ORCHESTRATOR
 # ==========================================
-def get_specialist_llm():
+def get_specialist_llm(intent="academic_rag"):
     """
-    Groq এর মাধ্যমে Llama-3 70B কে Specialist Agent হিসেবে ইনিশিয়ালাইজ করা।
-    এটি অত্যন্ত দ্রুত এবং লজিক্যাল রিজনিংয়ে দারুণ।
+    Layer 2 & 3: Multi-Provider Fallback & Model Routing
+    Groq -> Gemini -> OpenRouter
     """
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    if not groq_api_key:
-        raise ValueError("GROQ_API_KEY is missing!")
-        
-    return ChatGroq(
-        api_key=groq_api_key,
-        model_name="llama-3.3-70b-versatile",
-        temperature=0.2, # Low temperature for logical, structured output
-        max_tokens=1500
+    # Fetch Keys safely
+    groq_key = os.getenv("GROQ_API_KEY")
+    gemini_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+
+    # --- ROUTING LOGIC BASED ON INTENT ---
+    if intent == "research":
+        # Complex task: Try to use best model first
+        primary_model = "llama-3.3-70b-versatile"
+        fallback_model = "gemini-1.5-pro" # Or gemini-1.5-flash
+    else:
+        # Standard task: Use fast/cheap models
+        primary_model = "llama-3.1-8b-instant"
+        fallback_model = "gemini-1.5-flash"
+
+    # 1. PRIMARY PROVIDER (Groq - Super Fast)
+    primary_llm = ChatGroq(
+        model_name=primary_model, 
+        temperature=0.2, 
+        api_key=groq_key, 
+        max_retries=1
     )
+
+    # 2. FALLBACK PROVIDER 1 (Google Gemini - High Rate Limits)
+    fallback_1 = ChatGoogleGenerativeAI(
+        model=fallback_model, 
+        temperature=0.2, 
+        google_api_key=gemini_key, 
+        max_retries=1
+    )
+
+    # 3. FALLBACK PROVIDER 2 (OpenRouter - Universal Backup)
+    fallback_2 = ChatOpenAI(
+        model_name="meta-llama/llama-3-8b-instruct:free", 
+        temperature=0.2, 
+        api_key=openrouter_key, 
+        base_url="https://openrouter.ai/api/v1", 
+        max_retries=1
+    )
+
+    # 🔴 THE MAGIC: Bind them together for automatic failover!
+    robust_llm = primary_llm.with_fallbacks([fallback_1, fallback_2])
+    
+    return robust_llm
 
 
 # ==========================================
@@ -47,6 +112,10 @@ def generate_cgpa_boost_plan(user_id: str):
     """
     ইউজারের উইকনেস রিপোর্ট এনালাইজ করে ৭ দিনের ডাইনামিক রুটিন তৈরি করবে এবং ডাটাবেসে সেভ করবে।
     """
+    import json
+    import re
+    import traceback
+    
     try:
         # Step 1: Hook the Analytics Engine
         report = generate_progress_report(user_id)
@@ -54,14 +123,14 @@ def generate_cgpa_boost_plan(user_id: str):
         # Step 2: Initialize Agent
         llm = get_specialist_llm()
         
-        # Step 3: Agentic Prompt Design (System Architecture)
+        # Step 3: Agentic Prompt Design
         system_prompt = """You are an elite Academic AI Agent for the International Relations (IR) Department.
 Your goal is to create a highly optimized, realistic 7-day Study Plan for an undergrad student based on their analytics report.
 
 CRITICAL INSTRUCTIONS:
 1. Focus heavily on their 'focus_needed_on' (weaknesses) to boost their CGPA.
 2. Ensure the plan balances hard topics with lighter revision of 'strong_areas'.
-3. You MUST output ONLY valid JSON in the exact format below. Do not include markdown blocks (like ```json), introductions, or conclusions.
+3. You MUST output ONLY valid JSON in the exact format below. Do not include markdown blocks, intros, or outros.
 
 JSON FORMAT:
 {{
@@ -72,12 +141,12 @@ JSON FORMAT:
     "day_5": {{"focus_subject": "Course Name", "strategy": "What specifically to study and how"}},
     "day_6": {{"focus_subject": "Course Name", "strategy": "What specifically to study and how"}},
     "day_7": {{"focus_subject": "Mock Test / Review", "strategy": "Testing knowledge"}},
-    "ai_advice": "A short, highly motivational and inspirational advice based on their specific growth trend."
-
+    "ai_advice": "A short, highly motivational advice based on their growth trend."
 }}"""
 
         human_prompt = "Here is the student's current academic analytics report: {report_data}\n\nGenerate the 7-day CGPA Boost Plan JSON now."
         
+        from langchain_core.prompts import ChatPromptTemplate
         prompt_template = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("human", human_prompt)
@@ -85,31 +154,29 @@ JSON FORMAT:
         
         # Step 4: Execute Chain
         chain = prompt_template | llm
-        
-        # JSON ডাম্প করে ডেটা পাঠানো হচ্ছে
         response = chain.invoke({"report_data": json.dumps(report)})
         
-        # Response ক্লিন করা (যদি LLM ভুল করে ব্যাকটিক্স দিয়ে দেয়)
-        clean_json_str = response.content.strip().replace("```json", "").replace("```", "").strip()
+        # 🔴 THE ULTIMATE JSON EXTRACTOR
+        clean_text = response.content.strip()
+        start_idx = clean_text.find('{')
+        end_idx = clean_text.rfind('}')
         
-        # Step 5: Parse and Save to Database
-        plan_json = json.loads(clean_json_str)
-        
-        save_success = save_study_plan(
-            user_id=user_id, 
-            plan_type="7-Day CGPA Boost", 
-            plan_data=plan_json
-        )
-        
-        if save_success:
-            logger.info(f"✅ Successfully generated and saved CGPA Boost Plan for {user_id}")
-            return {"status": "success", "plan": plan_json}
+        if start_idx != -1 and end_idx != -1:
+            clean_json_str = clean_text[start_idx:end_idx+1]
+            plan_json = json.loads(clean_json_str)
+            
+            # Step 5: Parse and Save to Database (Ensure save_study_plan saves to "smart_routines")
+            save_success = save_study_plan(user_id=user_id, plan_type="7-Day CGPA Boost", plan_data=plan_json)
+            
+            if save_success:
+                return {"status": "success", "plan": plan_json}
+            else:
+                return {"status": "error", "message": "⚠️ Failed to save the plan to database."}
         else:
-            return {"status": "error", "message": "⚠️ Failed to save theplan to database."}
+            return {"status": "error", "message": "⚠️ AI Output did not contain valid JSON."}
 
     except json.JSONDecodeError:
-        logger.error("Agent failed to output valid JSON.")
-        return {"status": "error", "message": "⚠️ AI Output parsing failed."}
+        return {"status": "error", "message": "⚠️ AI Output parsing failed. Invalid JSON structure."}
     
     except Exception as e:
     # 🔴 X-RAY DEBUGGER: Catch exactly where it crashed
@@ -206,7 +273,6 @@ Output EXACTLY in this JSON format (No markdown ticks, just raw JSON):
         logger.error(f"Assessment Agent Error: {str(e)}")
         return {"status": "error", "message": str(e)}
     
-
 
 # =================================================
 # 4. ELITE RESEARCH OS (GAP HUNTER & LIT REVIEW)
@@ -336,15 +402,16 @@ def generate_genz_features(topic: str, feature_type: str, extra_data: dict = Non
         
         elif feature_type == "judge":
             transcript = extra_data.get("transcript", "") if extra_data else ""
-            system_prompt = """You are an Elite Academic Debate Judge (IR Specialist).
+            system_prompt = """You are an Elite Academic Debate unbiased Judge (IR Specialist).
             Review the debate transcript between the User and AI Opponent.
-            Evaluate arguments based strictly on authentic International Relations (IR) books, historical data, and factual accuracy.
+            Evaluate arguments based strictly on authentic International Relations (IR) books, historical data, current geopolitics dynamics and factual accuracy.
             Output EXACTLY in this JSON format without markdown ticks:
             {
-                "winner": "User or AI Opponent",
-                "user_score": 85,
-                "ai_score": 90,
-                "verdict_summary": "A precise explanation of why the winner won, mentioning specific factual points used."
+                "winner": "User or AI",
+                "user_score": <int 0-100 based on factual accuracy>,
+                "ai_score": <int 0-100 based on factual accuracy>,
+                "verdict_summary": "<3-sentence deep analysis of why the winner won, explicitly mentioning who had better 2026 factual accuracy.>"
+    
             }"""
             messages = [SystemMessage(content=system_prompt), HumanMessage(content=f"Transcript:\n{transcript}")]
 
