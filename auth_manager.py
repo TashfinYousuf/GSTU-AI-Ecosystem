@@ -88,3 +88,14 @@ def get_oauth_url(provider: str, supabase_client):
     except Exception as e:
         print(f"❌ OAuth URL Generation Failed: {e}")
         return None
+
+def get_user_profile(user_id: str, supabase_client):
+    """
+    Fetches user data (like Role/Name) from the database after email login.
+    """
+    try:
+        response = supabase_client.table("users").select("*").eq("id", user_id).single().execute()
+        return response.data if response.data else {}
+    except Exception as e:
+        print(f"Profile fetch info: {e}")
+        return {}
