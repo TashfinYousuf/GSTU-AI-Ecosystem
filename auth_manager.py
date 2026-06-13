@@ -67,22 +67,24 @@ def update_usage_tracking(user_id):
         pass # Handle silently in production
 
 
-def get_oauth_url(provider: str):
+# auth_manager.py
+
+def get_oauth_url(provider: str, supabase_client):
     """
-    Generates the secure OAuth login URL from Supabase.
-    Provider must be either 'google' or 'facebook'.
+    Generates the native Implicit Flow URL using the implicit client options.
+    Returns a clean URL containing target redirect destination.
     """
-    # 🔴 IMPORTANT: Use your exact Render live URL here
-    redirect_uri = "https://gstu-ir-backend.onrender.com" 
+    redirect_uri = "https://gstu-ai-backend.onrender.com" 
     
     try:
-        # Requesting the OAuth URL from Supabase
-        res = supabase.auth.sign_in_with_oauth({
+        # Client options-এ implicit থাকায় এটি অটোমেটিক্যালি response_type=token ফায়ার করবে
+        res = supabase_client.auth.sign_in_with_oauth({
             "provider": provider,
             "options": {
-                "redirectTo": redirect_uri
+                "redirect_to": redirect_uri
             }
         })
         return res.url
     except Exception as e:
-        return "#" # Fallback to a dead link if the API call fails
+        print(f"❌ OAuth URL Generation Failed: {e}")
+        return None

@@ -1,7 +1,8 @@
 import os
+import streamlit as st
+from supabase import create_client, ClientOptions
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
-from supabase import create_client
 
 def get_vector_db():
     supabase_url = os.getenv("SUPABASE_URL")
@@ -9,7 +10,7 @@ def get_vector_db():
     if not supabase_url or not supabase_key: 
         return None
     try:
-        supabase = create_client(supabase_url, supabase_key)
+        supabase = create_client(supabase_url, supabase_key, options=ClientOptions(flow_type="implicit"))
         embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
         return SupabaseVectorStore(client=supabase, embedding=embeddings, table_name="gstu_documents", query_name="match_documents")
     except Exception as e:

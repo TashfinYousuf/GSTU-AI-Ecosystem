@@ -1,12 +1,13 @@
 import os
 import time
 import gc
+import streamlit as st
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
-from supabase import create_client
+from supabase import create_client, ClientOptions
 
 load_dotenv()
 
@@ -19,7 +20,7 @@ def process_and_upload_data(data_folder="university_data"):
         print("⚠️ Error: Supabase credentials missing in .env file!")
         return
 
-    supabase = create_client(supabase_url, supabase_key)
+    supabase = create_client(supabase_url, supabase_key, options=ClientOptions(flow_type="implicit"))
     
     # 🔴 FIX: CPU Threads limit kore dewa holo jate Mac gorom na hoy
     print("⚙️ Loading Embedding Model (Optimized for low CPU usage)...")

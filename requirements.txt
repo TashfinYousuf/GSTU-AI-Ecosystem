@@ -19,6 +19,7 @@ tavily-python
 supabase
 redis
 sqlalchemy
+streamlit-supabase-auth
 
 # --- Utilities & Data Processing ---
 python-dotenv

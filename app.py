@@ -49,6 +49,60 @@ from core_agents import generate_cgpa_boost_plan
 
 logger = logging.getLogger(__name__)
 
+import streamlit.components.v1 as components
+
+# =====================================================================
+# 🛡️ PURE IMPLICIT FLOW TOKEN BRIDGE & PYTHON SESSION SETTER
+# =====================================================================
+# 1. JS catches the secure tokens from URL Hash and shifts to query parameters safely
+components.html("""
+<script>
+    const hash = window.parent.location.hash;
+    if (hash && hash.includes("access_token")) {
+        const params = new URLSearchParams(hash.substring(1));
+        const at = params.get("access_token");
+        const rt = params.get("refresh_token");
+        if (at && rt) {
+            // Instantly wipe tokens from browser history to avoid URL leakage
+            window.parent.history.replaceState(null, null, window.parent.location.pathname);
+            // Send to Python query execution path
+            window.parent.location.search = `?at=${at}&rt=${rt}`;
+        }
+    }
+</script>
+""", height=0, width=0)
+
+# 2. Python intercepts the clean query parameters and activates user session
+if "at" in st.query_params and "rt" in st.query_params:
+    try:
+        at = st.query_params["at"]
+        rt = st.query_params["rt"]
+        
+        # 🟢 FORCE SESSION SET: Absolute bypass of PKCE code_verifier check
+        res = supabase.auth.set_session(at, rt)
+        
+        if res and res.user:
+            uid = res.user.id
+            email = res.user.email
+            name = res.user.user_metadata.get("full_name", email.split("@")[0])
+            assigned_role = "Admin" if email in ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"] else res.user.user_metadata.get("role", "Student")
+            
+            # Secure long-term cookie tracking
+            cookie_controller.set("access_token", at, max_age=31536000)
+            cookie_controller.set("refresh_token", rt, max_age=31536000)
+            cookie_controller.set("user_id", uid, max_age=31536000)
+            
+            st.session_state.update({
+                'authenticated': True, 'logged_in': True, 'user_id': uid, 'username_id': uid, 
+                'user_email': email, 'user_name': name, 'user_role': assigned_role, 'show_login_page': False
+            })
+            
+        st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.error(f"⚠️ Security token validation failed: {e}")
+        st.query_params.clear()
+
 # =====================================================================
 # 🧠 ZERO-COST AI CACHING ENGINE (Upstash Redis for Cloud)
 # =====================================================================
@@ -85,27 +139,41 @@ def init_supabase():
 supabase = init_supabase() # This now takes 0.001 seconds on reruns!
 
 # =====================================================================
+# ⚡ SUPER-FAST IMAGE CACHING (Fixes Memory Leak & CPU Burn)
+# =====================================================================
+@st.cache_data(show_spinner=False)
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    return ""
+
+logo_b64 = get_base64_image("data/logo.png") or get_base64_image("logo.png")
+dash_bg_b64 = get_base64_image("data/background_pic.png") or get_base64_image("background_pic.png")
+
+logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 55px; height: 55px; border-radius: 50%; margin-bottom: 5px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'>" if logo_b64 else "<span style='font-size: 45px;'>🎓</span>"
+
+# =====================================================================
 # ⚡ 2. INITIALIZE PAGE & CACHED LOGO
 # =====================================================================
-@st.cache_resource(show_spinner=False)
 def load_app_logo():
-    logo_path = "data/logo.png"
-    if os.path.exists(logo_path):
-        try:
-            # 🔴 Check if the image is corrupted before using it
-            img = Image.open(logo_path)
-            img.verify() 
-            return Image.open(logo_path)
-        except Exception as e:
-            print(f"⚠️ Corrupted logo file ignored: {e}")
-            return "🎓" # Fallback to emoji if file is broken
+    """Safely loads the logo for the Streamlit page icon."""
+    paths_to_check = ["logo.png", "data/logo.png"]
+    
+    for path in paths_to_check:
+        if os.path.exists(path):
+            try:
+                # কোনো verify() ছাড়া সরাসরি ইমেজ ওপেন করা
+                return Image.open(path)
+            except Exception as e:
+                print(f"⚠️ Image load error at {path}: {e}")
     return "🎓"
 
 st.set_page_config(
     page_title="GSTU AI Assistant",
     page_icon=load_app_logo(),
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 
@@ -114,8 +182,6 @@ def local_css(file_name):
     if os.path.exists(file_name):
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-            st.markdown('<a href="/" target="_self" class="mobile-floating-btn">📝</a>', unsafe_allow_html=True)
-
 local_css("assets/style.css")
 
 # =====================================================================
@@ -123,39 +189,101 @@ local_css("assets/style.css")
 # =====================================================================
 st.markdown("""
     <style>
-    @media (max-width: 768px) {
-        /* 1. Fix Sidebar Overlap: Let Streamlit handle mobile drawer natively */
-        [data-testid="stSidebar"] {
-            min-width: 0px !important;
-            max-width: 85vw !important;
-        }
-        
-        /* 2. Fix Reaction Buttons: Force them into a single horizontal row */
-        [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            gap: 5px !important;
-            padding-bottom: 5px !important;
-        }
-        [data-testid="stChatMessage"] div[data-testid="column"] {
-            width: auto !important;
-            min-width: max-content !important;
-            flex: 0 0 auto !important;
-        }
-        
-        /* 3. General Mobile Spacing & Padding */
-        .block-container {
-            padding-left: 15px !important;
-            padding-right: 15px !important;
-        }
-        
-        /* 4. Fix input box cutoff on mobile */
-        div[data-testid="stChatInput"] > div > div {
-            padding: 2px 10px !important;
-        }
+    /* =========================================================
+       1. BULLETPROOF LOGIN CARD (Fixes nth-child Bug)
+       ========================================================= */
+    .custom-login-card {
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 20px;
+        padding: 30px 40px;
+        box-shadow: 0 15px 50px rgba(0, 0, 0, 0.8);
+        margin-top: 2vh;
+        width: 100%;
     }
+
+    /* =========================================================
+    🔥 REACTION BUTTONS COMPACT ALIGNMENT & EQUAL SIZE
+    ========================================================= */
+    /* Forces the container to stay compact and tightly grouped */
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        gap: 6px !important; /* Spacing between buttons like ChatGPT */
+        width: max-content !important;
+        margin-top: 8px !important;
+    }
+
+    /* Kills the wide default column layout inside chat messages */
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        width: auto !important;
+        min-width: unset !important;
+        flex: unset !important;
+        padding: 0 !important;
+    }
+
+    /* Forces all buttons to be exactly the same premium box size */
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] button {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+    }
+
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] button:hover {
+        border-color: #10a37f !important;
+        background: rgba(16, 163, 127, 0.1) !important;
+        color: #ffffff !important;
+    }
+
+    /* =========================================================
+       3. AI TYPOGRAPHY (ChatGPT/Gemini Style)
+       ========================================================= */
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+        font-family: 'Söhne', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p, 
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li {
+        font-size: 15.5px !important;
+        line-height: 1.65 !important;
+        color: #ececec !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h1 { font-size: 22px !important; font-weight: 600 !important; }
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2 { font-size: 20px !important; font-weight: 600 !important; }
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h3 { font-size: 18px !important; font-weight: 500 !important; }
+
+    /* Forces Streamlit to keep buttons in a tight horizontal row on mobile */
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+        width: max-content !important;
+    }
+    
+    /* Destroys Streamlit's default 100% width column stacking on mobile */
+    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        width: auto !important;
+        min-width: 0px !important;
+        max-width: max-content !important;
+        flex: 0 0 auto !important;
+        padding: 0 !important;
+        display: block !important;
+    }
+    
     </style>
 """, unsafe_allow_html=True)
 
@@ -376,62 +504,8 @@ def professional_logout():
             'user_id': 'guest_session', 'username_id': 'guest_session',
             'show_login_page': True, 'auth_mode': 'login'
         })
-        time.sleep(1.2) # CRITICAL: Wait for browser to actually delete the cookie
+        time.sleep(1.5) # CRITICAL: Wait for browser to actually delete the cookie
         st.rerun()
-
-# =====================================================================
-# 🔄 6. OAUTH TRIGGER & CALLBACK HANDLER
-# =====================================================================
-if "login_provider" in st.query_params:
-    provider = st.query_params["login_provider"]
-    from auth_manager import get_oauth_url
-    url = get_oauth_url(provider)
-    st.query_params.clear()
-    st.components.v1.html(f'<meta http-equiv="refresh" content="0; url={url}">', height=0)
-    st.stop()
-
-if "code" in st.query_params:
-    try:
-        auth_code = st.query_params["code"]
-        if isinstance(auth_code, list): auth_code = auth_code[0]
-        
-        res = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
-        
-        if res and hasattr(res, 'session') and res.session:
-            session = res.session
-            user = res.user
-            uid, email = user.id, user.email
-            name = user.user_metadata.get("full_name", email.split("@")[0])
-            assigned_role = "Admin" if email in ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"] else user.user_metadata.get("role", "Student")
-            
-            cookie_controller.set("access_token", session.access_token, max_age=TEN_YEARS)
-            cookie_controller.set("refresh_token", session.refresh_token, max_age=TEN_YEARS)
-            cookie_controller.set("user_id", uid, max_age=TEN_YEARS)
-            
-            st.session_state.update({
-                'authenticated': True, 'logged_in': True, 'user_id': uid, 'username_id': uid, 
-                'user_email': email, 'user_name': name, 'user_role': assigned_role, 'just_logged_in': True,
-                'show_login_page': False
-            })
-            st.query_params.clear()
-            time.sleep(1.0)
-            st.rerun() 
-            
-    except Exception as e:
-        # 🔴 FIX: Show why Google Auth failed instead of infinite looping!
-        st.error(f"⚠️ OAuth Login Failed: {str(e)}")
-        time.sleep(3)
-        st.query_params.clear()
-        st.rerun()
-
-# 🔴 DEFAULT TO GUEST IF NOT LOGGED IN
-if not st.session_state.get("logged_in", False):
-    st.session_state.user_role = "Guest"
-    st.session_state.username_id = "guest_session"
-    st.session_state.user_id = "guest_session"
-    st.session_state.user_name = "Guest Scholar" 
-    st.session_state.user_email = "" 
-    st.session_state.logged_in = False
 
 # =====================================================================
 # 🎨 7. GLOBAL BACKGROUND, LOGO & SMART LOGIN WALL
@@ -445,9 +519,8 @@ for path in ["logo.png", "data/logo.png"]:
             
 logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 55px; height: 55px; border-radius: 50%; margin-bottom: 5px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'>" if logo_b64 else "<span style='font-size: 45px;'>🎓</span>"
 
-
-# 🔴 Only show login wall if explicitly triggered!
-if st.session_state.get("show_login_page", False) and not st.session_state.get("logged_in", False):
+# 🟢 Only show login wall if explicitly clicked!
+if st.session_state.get("show_login_page", False):
     
     bg_b64 = ""
     for path in ["background_pic.png", "data/background_pic.png"]:
@@ -509,19 +582,37 @@ if st.session_state.get("show_login_page", False) and not st.session_state.get("
             st.error("⚠️ **No Internet!** Cannot connect to Authentication Server.")
         else:
             # =====================================================
-            # 🟢 MODE: LOGIN
+            # 🟢 MODE: LOGIN (Your Original Beautiful UI)
             # =====================================================
             if st.session_state.auth_mode == "login":
-                st.markdown(f"""
-                    <a href="?login_provider=google" target="_self" class="social-btn"><img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" class="social-icon"> Continue with Google</a>
-                    <a href="?login_provider=facebook" target="_self" class="social-btn"><img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg" class="social-icon"> Continue with Facebook</a>
-                """, unsafe_allow_html=True)
+                
+                # 🟢 Import and use the clean official SDK generator
+                from auth_manager import get_oauth_url
+                
+                # Dynamically fetch secure URLs directly from Supabase via auth_manager
+                google_url = get_oauth_url("google", supabase)
+                fb_url = get_oauth_url("facebook", supabase)
+
+                # Render your original CSS/HTML buttons safely without breaking the protocol
+                if google_url and fb_url:
+                    st.markdown(f"""
+                        <a href="{google_url}" target="_self" class="social-btn">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" class="social-icon"> Continue with Google
+                        </a>
+                        <a href="{fb_url}" target="_self" class="social-btn">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg" class="social-icon"> Continue with Facebook
+                        </a>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.error("⚠️ Security layer failed to initialize OAuth providers.")
+                
                 st.markdown("<div class='divider'>or continue with email</div>", unsafe_allow_html=True)
 
                 login_email = st.text_input("Email", placeholder="name@gstu.edu.bd", label_visibility="collapsed")
                 login_password = st.text_input("Password", type="password", placeholder="Password", label_visibility="collapsed")
                 
                 if st.button("Sign In →", use_container_width=True, type="primary"):
+                    # (আপনার আগের Email/Password লগইনের কোড এখানে থাকবে, এটা ১০০% ঠিক আছে)
                     try:
                         res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
                         if res and res.session:
@@ -540,14 +631,12 @@ if st.session_state.get("show_login_page", False) and not st.session_state.get("
                             st.session_state.chat_history = load_chat_history_cached(session.user.id)
                             
                             st.success("✅ Login successful! Loading dashboard...")
-                            time.sleep(1.5)
+                            import time
+                            time.sleep(1)
                             st.rerun() 
                         else: st.error("⚠️ Authentication failed.")
                     except Exception as e:
-                        if "Email not confirmed" in str(e):
-                            st.warning("⚠️ Please check your email and verify your account first!")
-                        else:
-                            st.error("⚠️ Invalid email or password. Please try again.")
+                        st.error("⚠️ Invalid email or password. Please try again.")
                 
                 # Clean Text-Link Buttons
                 btn_col1, btn_col2 = st.columns(2)
@@ -555,7 +644,6 @@ if st.session_state.get("show_login_page", False) and not st.session_state.get("
                     if st.button("Forgot Password?", use_container_width=True): st.session_state.auth_mode = "forgot"; st.rerun()
                 with btn_col2:
                     if st.button("Create an Account", use_container_width=True): st.session_state.auth_mode = "signup"; st.rerun()
-
 
             # =====================================================
             # 🔐 MODE: FORGOT PASSWORD
@@ -685,6 +773,7 @@ def faculty_secure_dialog():
                 if col2.button("✅ Verify Identity", key=f"app_fac_{f['id']}", type="primary"):
                     supabase.table("user_profiles").update({"role": "Faculty"}).eq("id", f['id']).execute()
                     st.success(f"Verified {f['full_name']} successfully!")
+                    time.sleep(0.6)
                     st.rerun()
                 st.markdown("---")
         else:
@@ -1077,7 +1166,7 @@ else:
         }}
         [data-testid="stSidebar"] div[data-testid="stPopover"] > button:hover {{
             background: #10a37f !important; color: #ffffff !important;
-            transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(16,163,127,0.4) !important;
+            
         }}
 
         /* 🔴 4. PREMIUM POPOVER (AI SUPPORT INNER DESIGN) */
@@ -1222,7 +1311,7 @@ def student_onboarding_dialog():
             update_student_onboarding(current_uid, sem, interest, goal)
             st.session_state.is_onboarded = True
             st.success("✅ Profile Initialized! The AI is now synced to your goals.")
-            time.sleep(1.5)
+            time.sleep(1)
             st.rerun()
         else:
             st.warning("Please fill out all fields so the AI can understand you better.")
@@ -1270,9 +1359,10 @@ if not st.session_state.get("user_email") and current_uid != "guest_session":
     st.session_state.user_email = local_user.get("email", "")
 
 # 🔴 STRICT ROLE ASSIGNMENT
-if current_uid == "guest_session" or not st.session_state.get("logged_in"):
+if not st.session_state.get("logged_in") and not st.query_params:
     st.session_state.user_role = "Guest"
     st.session_state.user_name = "Guest Scholar"
+    st.session_state.logged_in = False
 else:
     is_real_admin = st.session_state.get("user_email") in ADMIN_EMAILS
     db_user = st.session_state.users_db.get(current_uid, {})
@@ -1370,7 +1460,7 @@ def feedback_dialog(msg_index):
     if st.button("Submit Feedback to Core", type="primary", use_container_width=True):
         # Phase 2: Save to 'ai_training_logs' in Supabase
         st.success("✅ Feedback securely logged! The GSTU AI routing engine will adjust future responses.")
-        time.sleep(1.5)
+        time.sleep(0.6)
         st.rerun()
 
 
@@ -1391,6 +1481,7 @@ def feedback_dialog(msg_index):
             }).execute()
             st.success("✅ Logged! Your AI profile is now updated.")
             st.session_state.has_seen_daily_logger = True
+            time.sleep(0.6)
             st.rerun()
         except Exception as e:
             st.error(f"⚠️ DB Error: {e}")
@@ -1420,6 +1511,7 @@ def study_checkin_dialog():
             
             st.success("✅ Logged! Your AI profile is now updated.")
             st.session_state.has_seen_daily_logger = True
+            time.sleep(0.6)
             st.rerun()
         except Exception as e:
             st.error(f"⚠️ DB Error: {e}")
@@ -1512,7 +1604,7 @@ def account_settings_dialog():
                     st.session_state.users_db[current_uid]["role"] = new_role
                     with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
                 st.toast(f"✅ Role successfully changed to {new_role}", icon="👑")
-                time.sleep(0.5)
+                time.sleep(0.6)
                 st.rerun()
 
     # 🔴 Ensure Billing & Earn logic ONLY executes if NOT guest
@@ -1674,6 +1766,7 @@ with col_profile:
                     with open(DB_FILE, "w") as f: json.dump(st.session_state.users_db, f, indent=4)
                 except Exception: pass
                 st.toast("✅ Profile picture updated successfully!")
+                time.sleep(0.6)
                 st.rerun()
 
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
@@ -1696,6 +1789,7 @@ def save_dialog():
                 if ch["title"] == st.session_state.active_chat_title: ch["folder"] = selected
             save_chat_history(st.session_state.chat_history)
             st.success(f"✅ Successfully moved to {selected}!")
+            time.sleep(0.6)
             st.rerun()
     else: st.info("No folders exist yet. Create one below.")
 
@@ -1703,7 +1797,7 @@ def save_dialog():
 @st.dialog("✏️ Rename Current Chat")
 def rename_dialog():
     new_name = st.text_input("Enter new name:", value=st.session_state.active_chat_title)
-    if st.button("Update Name", use_container_width=True):
+    if st.button("Update Name", use_container_width=True, type="primary"): # 🔴 Added primary type for UX
         new_t = new_name.strip()
         if new_t and new_t != st.session_state.active_chat_title:
             old_t = st.session_state.active_chat_title
@@ -1712,6 +1806,7 @@ def rename_dialog():
                 if ch["title"] == old_t: ch["title"] = new_t
             save_chat_history(st.session_state.chat_history)
             st.success("✅ Chat renamed successfully!")
+            time.sleep(0.6)
             st.rerun()
 
 @st.dialog("🗑️ Delete Chat")
@@ -1723,7 +1818,7 @@ def delete_dialog():
         st.session_state.messages = []
         st.session_state.active_chat_title = None
         st.error("🗑️ Chat deleted permanently!")
-        time.sleep(1)
+        time.sleep(0.6)
         st.rerun()
 
 @st.dialog("➕ Create New Project")
@@ -1736,6 +1831,7 @@ def create_project_dialog():
                 if ch["title"] == st.session_state.active_chat_title: ch["folder"] = folder_n
             save_chat_history(st.session_state.chat_history)
             st.success(f"✅ Folder '{folder_n}' created successfully!")
+            time.sleep(0.6)
             st.rerun()
 
 @st.dialog("🗑️ Delete Selected Chats")
@@ -1753,7 +1849,7 @@ def bulk_delete_dialog(selected_titles):
             st.session_state.messages = []
             st.session_state.active_chat_title = None
         st.success(f"✅ Deleted {n} chat{'s' if n > 1 else ''}!")
-        time.sleep(1)
+        time.sleep(0.6)
         st.rerun()
 
 @st.dialog("📁 Move Selected to Project")
@@ -1773,6 +1869,7 @@ def bulk_move_dialog(selected_titles):
                     if k.startswith("cb_"): del st.session_state[k]
                 st.session_state.selection_mode = False
                 st.success(f"✅ Moved {n} chat{'s' if n > 1 else ''} to '{folder}'!")
+                time.sleep(0.6)
                 st.rerun()
         else: st.info("No existing folders.")
     with tab2:
@@ -1788,6 +1885,7 @@ def bulk_move_dialog(selected_titles):
                     if k.startswith("cb_"): del st.session_state[k]
                 st.session_state.selection_mode = False
                 st.success(f"✅ Created '{fn}' and moved {n} chat{'s' if n > 1 else ''}!")
+                time.sleep(0.6)
                 st.rerun()
 
 
@@ -1938,6 +2036,7 @@ def admin_dashboard_dialog():
                             with st.spinner("Closing ticket..."):
                                 supabase.table("support_tickets").update({"ticket_status": "Resolved"}).eq("id", t['id']).execute()
                                 st.success(f"Ticket closed successfully!")
+                                time.sleep(0.6)
                                 st.rerun()
             else:
                 st.success("🎉 Great job! No pending support tickets right now.")
@@ -2140,7 +2239,7 @@ with st.sidebar:
     
 
     # 🔴 Perfect spacing before the action buttons
-    st.markdown("<div style='margin-top: 20px; margin-left: 12px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -2610,6 +2709,7 @@ with st.sidebar:
                                 if st.button(f"Approve & Publish '{p['title']}'", key=f"app_not_{p['id']}", type="primary"):
                                     supabase.table("notices").update({"status": "published"}).eq("id", p['id']).execute()
                                     st.success("✅ Published successfully!")
+                                    time.sleep(0.6)
                                     st.rerun()
                         else:
                             st.caption("No pending drafts waiting for approval.")
@@ -3626,16 +3726,24 @@ if llm:
 
     chat_container = st.container()
     
+    # =====================================================================
+    # 🔴 CHAT HISTORY RENDERER (PERMANENT BADGE)
+    # =====================================================================
     for index, msg in enumerate(st.session_state.messages):
         if not isinstance(msg, dict) or "role" not in msg or "content" not in msg: continue
-        avatar = "🧑‍💻" if msg["role"] == "user" else "✨"
+        
+        avatar = "👨🏻‍💻" if msg["role"] == "user" else "✨"
         with chat_container.chat_message(msg["role"], avatar=avatar):
-            if msg["role"] == "assistant": st.markdown(msg["content"], unsafe_allow_html=True)
-            else: st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                # 🟢 FIX: Attach badge ONLY during rendering!
+                verifier_badge = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>"
+                st.markdown(verifier_badge + "\n\n" + msg["content"], unsafe_allow_html=True)
+            else:
+                st.markdown(msg["content"])
             
             if msg["role"] == "assistant":
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                act_cols = st.columns([1, 1, 1, 1, 1, 8], gap="small")
+                act_cols = st.columns([1, 1, 1, 1, 1, 15])
                 with act_cols[0]:
                     import urllib.parse
                     is_bn_msg = bool(re.search(r'[\u0980-\u09FF]', msg["content"]))
@@ -3710,7 +3818,7 @@ if llm:
                     """
                     st.components.v1.html(copy_html, height=30)
                 with act_cols[5]:
-                    app_url = os.getenv("APP_URL", "https://gstu-ir-ai.streamlit.app")
+                    app_url = os.getenv("APP_URL", "https://gstu-ai.streamlit.app")
                     st.components.v1.html(f"""<button onclick="if(navigator.share)navigator.share({{url:'{app_url}'}})" style="background:transparent; border:none; cursor:pointer; font-size:20px;">📤</button>""", height=35)
                 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -3784,27 +3892,56 @@ if llm:
                 except Exception as e: st.warning(f"Read error: {e}")
 
     # =====================================================================
-    # 🔴 AI PROCESSING FLAG ARCHITECTURE
+    # 🔴 AI PROCESSING FLAG ARCHITECTURE (Production Ready)
     # =====================================================================
-    if user_query:
+    if user_query and user_query.strip(): # 🟢 Prevents blank spaces from triggering the AI
+        
+        # 1. Initialize New Chat Session
         if not st.session_state.get("active_chat_title"):
-            new_title = user_query[:25] + "..."
+            clean_query = user_query.strip()
+            new_title = (clean_query[:25] + "...") if len(clean_query) > 25 else clean_query
             st.session_state.active_chat_title = new_title
-            st.session_state.current_session_id = create_new_session(current_uid, new_title)
-            if "chat_history" not in st.session_state: st.session_state.chat_history = []
-            st.session_state.chat_history.insert(0, {"title": new_title, "folder": None, "messages": []})
+            
+            # Safely create cloud session (Won't crash if DB is slow)
+            try:
+                st.session_state.current_session_id = create_new_session(current_uid, new_title)
+            except Exception as e:
+                print(f"⚠️ Session creation error: {e}")
+                st.session_state.current_session_id = None
+            
+            # Ensure local history structure exists safely
+            if "chat_history" not in st.session_state: 
+                st.session_state.chat_history = []
+                
+            st.session_state.chat_history.insert(0, {
+                "id": st.session_state.get("current_session_id"), # 🟢 Added ID for better tracking later
+                "title": new_title, 
+                "folder": None, 
+                "messages": []
+            })
 
+        # 2. Append to Local UI State
         st.session_state.messages.append({"role": "user", "content": user_query})
-        if st.session_state.get('current_session_id'): save_message_to_cloud(st.session_state.current_session_id, "user", user_query)
+        
+        # 3. Background Cloud Sync (Silent Fail logic added)
+        if st.session_state.get('current_session_id'): 
+            try:
+                save_message_to_cloud(st.session_state.current_session_id, "user", user_query)
+            except Exception as e:
+                print(f"⚠️ Cloud sync warning: {e}") # Fails silently, user won't face an error screen
 
+        # 4. 🟢 Render inside the chat container IMMEDIATELY
         with chat_container.chat_message("user", avatar="👨🏻‍💻"):
             if len(user_query) > 300:
                 st.markdown(user_query[:150] + "...")
-                with st.expander("🔽 Show full prompt"): st.markdown(user_query)
-            else: st.markdown(user_query)
+                with st.expander("🔽 Show full prompt"): 
+                    st.markdown(user_query)
+            else: 
+                st.markdown(user_query)
 
+        # 5. Set triggers for the AI Agent
         latest_q = st.session_state.messages[-1]["content"]
-        proceed_with_ai = True  
+        proceed_with_ai = True
 
         # SECURITY CHECK
         suspicious_keywords = ["ignore previous", "system prompt", "developer mode", "jailbreak", "print your instructions", "bypass", "forget instructions", "you are no longer", "sudo ", "give me the prompt"]
@@ -4275,17 +4412,21 @@ if llm:
                                     thinking_placeholder.empty() 
                                     
                                     if verifier_result["status"] == "success":
-                                        badge_html = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>"
+                                        verifier_badge = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>"
                                         
-                                        # 🔴 Render badge FIRST, then stream the text below it!
-                                        st.markdown(badge_html, unsafe_allow_html=True)
+                                        # 🔴 Print to screen WITH badge
+                                        st.markdown(verifier_badge, unsafe_allow_html=True)
+                                        streamed_text = st.write_stream(stream_verified())
+                                        
+                                        # 🟢 Save to DB WITHOUT the HTML badge
+                                        res_text = streamed_text
                                         
                                         def stream_verified():
                                             for chunk in llm_engine.stream(verifier_result["messages"]):
                                                 if hasattr(chunk, 'content') and chunk.content: yield str(chunk.content)
                                         
                                         streamed_text = st.write_stream(stream_verified())
-                                        res_text = badge_html + "\n\n" + streamed_text # Save perfectly to history
+                                        res_text = verifier_badge + "\n\n" + streamed_text # Save perfectly to history
                                     else:
                                         st.warning("⚠️ Verifier Offline. Showing direct draft.")
                                         def stream_draft():

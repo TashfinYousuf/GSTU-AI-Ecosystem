@@ -2,6 +2,7 @@ import logging
 import streamlit as st
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta, timezone
 from memory_db import supabase  # memory_db থেকে ডাটাবেস কানেকশন ইমপোর্ট করা হলো
 
@@ -32,6 +33,7 @@ def render_study_logger(user_id: str):
             }).execute()
             
             st.success(f"✅ {hours} Hours logged securely to your account.")
+            time.sleep(0.6)
             st.rerun()
         except Exception as e:
             st.error(f"⚠️ Database Error: {e}")
