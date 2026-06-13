@@ -16,11 +16,22 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_supabase() -> Client:
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("Supabase credentials missing! Check your .env file.")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    # 🔴 1. Try to get from .env (Local/Render), 2. Try st.secrets (Streamlit Cloud)
+    url = os.getenv("SUPABASE_URL")
+    if not url:
+        url = st.secrets.get("SUPABASE_URL") if hasattr(st, "secrets") else None
+        
+    key = os.getenv("SUPABASE_KEY")
+    if not key:
+        key = st.secrets.get("SUPABASE_KEY") if hasattr(st, "secrets") else None
+
+    # 🔴 Safety Check
+    if not url or not key:
+        raise ValueError("Supabase credentials missing! Please add them to Streamlit Secrets or .env")
+        
+    return create_client(url, key)
 
 supabase = get_supabase()
 

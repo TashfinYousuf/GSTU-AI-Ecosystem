@@ -89,7 +89,17 @@ supabase = init_supabase() # This now takes 0.001 seconds on reruns!
 # =====================================================================
 @st.cache_resource(show_spinner=False)
 def load_app_logo():
-    return Image.open("data/logo.png") if os.path.exists("data/logo.png") else "🎓"
+    logo_path = "data/logo.png"
+    if os.path.exists(logo_path):
+        try:
+            # 🔴 Check if the image is corrupted before using it
+            img = Image.open(logo_path)
+            img.verify() 
+            return Image.open(logo_path)
+        except Exception as e:
+            print(f"⚠️ Corrupted logo file ignored: {e}")
+            return "🎓" # Fallback to emoji if file is broken
+    return "🎓"
 
 st.set_page_config(
     page_title="GSTU AI Assistant",
@@ -3986,7 +3996,12 @@ if llm:
                                         embedding=embeddings,
                                         pinecone_api_key=os.getenv("PINECONE_API_KEY") or st.secrets.get("PINECONE_API_KEY")
                                     )
-                                    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+                                    # 🟢 THE HYBRID LONG-CONTEXT MAGIC
+                                    # Specific queries get 4 chunks (fast). Deep research gets 20 chunks (massive context for IR theory comparisons
+                                    search_k = 20 if query_intent == "research" else 4
+
+                                    retriever = vectorstore.as_retriever(search_kwargs={"k": search_k})
                                     db_docs = retriever.invoke(latest_q)
                                     
                                     if db_docs:
