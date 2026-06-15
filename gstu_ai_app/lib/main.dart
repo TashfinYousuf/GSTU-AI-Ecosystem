@@ -6,6 +6,9 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart'; // Copy to Clipboard
 import 'package:share_plus/share_plus.dart'; // Share
 import 'package:url_launcher/url_launcher.dart'; // Open Links
+import 'package:record/record.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 
 const String baseUrl = "https://gstu-ai-backend.onrender.com";
 
@@ -30,9 +33,6 @@ class _GSTUAiAppState extends State<GSTUAiApp> {
 
   @override
   Widget build(BuildContext context) {
-    // 🔴 BUG FIX 3: Auto-route to Dashboard if already logged in
-    final session = Supabase.instance.client.auth.currentSession;
-
     return MaterialApp(
       title: 'GSTU AI Ecosystem',
       debugShowCheckedModeBanner: false,
@@ -45,16 +45,85 @@ class _GSTUAiAppState extends State<GSTUAiApp> {
           brightness: Brightness.dark,
           scaffoldBackgroundColor: const Color(0xFF0B1120),
           fontFamily: 'sans-serif'),
-      home: session != null
-          ? const DashboardPage()
-          : LoginPage(
-              currentThemeMode: _themeMode, onThemeChanged: toggleTheme),
+      home: SplashScreen(
+          currentThemeMode: _themeMode, onThemeChanged: toggleTheme),
     );
   }
 }
 
 // ==========================================
-// 🔐 LOGIN PAGE
+// 🚀 SPLASH SCREEN (New!)
+// ==========================================
+class SplashScreen extends StatefulWidget {
+  final ThemeMode currentThemeMode;
+  final Function(ThemeMode) onThemeChanged;
+  const SplashScreen(
+      {super.key,
+      required this.currentThemeMode,
+      required this.onThemeChanged});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    // ২ সেকেন্ডের সুন্দর একটি ডিলে (লোগো দেখানোর জন্য)
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session != null) {
+      Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+              builder: (context) => const DashboardPage(isGuest: false)));
+    } else {
+      Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+              builder: (context) => LoginPage(
+                  currentThemeMode: widget.currentThemeMode,
+                  onThemeChanged: widget.onThemeChanged)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B1120),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text("🎓", style: TextStyle(fontSize: 80)),
+            const SizedBox(height: 20),
+            const Text("GSTU AI Core",
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white)),
+            const SizedBox(height: 10),
+            Text("Initializing Neural Engine...",
+                style: TextStyle(
+                    fontSize: 14, color: Colors.white.withOpacity(0.5))),
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(color: Color(0xFF10A37F)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 🔐 LOGIN PAGE (Updated with Guest Mode)
 // ==========================================
 class LoginPage extends StatefulWidget {
   final ThemeMode currentThemeMode;
@@ -74,8 +143,10 @@ class _LoginPageState extends State<LoginPage> {
     super.initState();
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       if (data.session != null && mounted) {
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (context) => const DashboardPage()));
+        Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+                builder: (context) => const DashboardPage(isGuest: false)));
       }
     });
   }
@@ -104,6 +175,8 @@ class _LoginPageState extends State<LoginPage> {
                       fontWeight: FontWeight.bold,
                       color: isDark ? Colors.white : Colors.black87)),
               const SizedBox(height: 30),
+
+              // Google Login Button
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -116,7 +189,8 @@ class _LoginPageState extends State<LoginPage> {
                   onPressed: () async {
                     await Supabase.instance.client.auth.signInWithOAuth(
                         OAuthProvider.google,
-                        redirectTo: 'gstuai://callback');
+                        redirectTo:
+                            'gstuai://callback'); // 🔴 This will now jump back to the app!
                   },
                   icon: const Icon(Icons.g_mobiledata,
                       color: Colors.redAccent, size: 30),
@@ -126,6 +200,22 @@ class _LoginPageState extends State<LoginPage> {
                           fontSize: 16)),
                 ),
               ),
+              const SizedBox(height: 15),
+
+              // 🔴 Guest Mode Button
+              TextButton(
+                onPressed: () {
+                  Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) =>
+                              const DashboardPage(isGuest: true)));
+                },
+                child: Text("Continue as Guest",
+                    style: TextStyle(
+                        color: Colors.grey.shade500,
+                        decoration: TextDecoration.underline)),
+              )
             ],
           ),
         ),
@@ -138,7 +228,8 @@ class _LoginPageState extends State<LoginPage> {
 // 🚀 THE ULTIMATE DASHBOARD
 // ==========================================
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final bool isGuest;
+  const DashboardPage({super.key, this.isGuest = false});
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
@@ -149,8 +240,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   final List<Map<String, String>> _messages = [];
 
-  // 🔴 BUG FIX 1: Changed to Map for safe ID/Title handling
+  // 🔴 Changed to Map for safe ID/Title handling
   final List<Map<String, dynamic>> _recentChats = [];
+
+  // 🔴 Voice Recording Variables
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
 
   bool _isThinking = false;
   String _selectedModel = "llama-3.1-8b-instant";
@@ -216,6 +311,61 @@ class _DashboardPageState extends State<DashboardPage> {
     } finally {
       setState(() => _isThinking = false);
       _scrollToBottom();
+    }
+  }
+
+  // 🎙️ Toggle Recording Logic
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      // Stop Recording
+      final path = await _audioRecorder.stop();
+      setState(() => _isRecording = false);
+      if (path != null) {
+        await _processVoiceNote(path); // অডিও ব্যাকএন্ডে পাঠানো
+      }
+    } else {
+      // Start Recording
+      if (await Permission.microphone.request().isGranted) {
+        final dir = await getApplicationDocumentsDirectory();
+        final filePath =
+            '${dir.path}/gstu_audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _audioRecorder.start(const RecordConfig(), path: filePath);
+        setState(() => _isRecording = true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("⚠️ Microphone permission required!")));
+      }
+    }
+  }
+
+  // 🚀 Send Audio to FastAPI Backend
+  Future<void> _processVoiceNote(String path) async {
+    setState(() => _isThinking = true);
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/voice'));
+      request.files.add(await http.MultipartFile.fromPath('audio_file', path));
+
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(responseData);
+        final transcription = json['transcription'];
+
+        // এআই যেটা শুনেছে সেটা টেক্সট হিসেবে সেন্ড করে দেওয়া
+        if (transcription != null && transcription.isNotEmpty) {
+          _sendMessage(transcription);
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Voice Processing Failed: ${response.statusCode}")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("⚠️ Error: $e")));
+    } finally {
+      setState(() => _isThinking = false);
     }
   }
 
@@ -430,37 +580,34 @@ class _DashboardPageState extends State<DashboardPage> {
                         child: Text("No history yet.",
                             style:
                                 TextStyle(color: Colors.grey, fontSize: 13))),
-                  ..._recentChats
-                      .map((chat) => ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.chat_bubble_outline,
-                                size: 20, color: Colors.grey),
-                            title: Text(chat['title'], // Fixed mapping
-                                style: TextStyle(
-                                    color: isDark
-                                        ? Colors.white70
-                                        : Colors.black87)),
-                            // 🔴 BUG FIX 2: Added proper PopupMenu for Rename/Delete
-                            trailing: PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert,
-                                  size: 18, color: Colors.grey),
-                              onSelected: (value) =>
-                                  _performChatAction(value, chat),
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                    value: 'rename', child: Text('✏️ Rename')),
-                                const PopupMenuItem(
-                                    value: 'folder',
-                                    child: Text('📁 Move to Folder')),
-                                const PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('🗑️ Delete',
-                                        style: TextStyle(color: Colors.red))),
-                              ],
-                            ),
-                            onTap: () => Navigator.pop(context),
-                          ))
-                      .toList(),
+                  ..._recentChats.map((chat) => ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.chat_bubble_outline,
+                            size: 20, color: Colors.grey),
+                        title: Text(chat['title'], // Fixed mapping
+                            style: TextStyle(
+                                color:
+                                    isDark ? Colors.white70 : Colors.black87)),
+                        // 🔴 BUG FIX 2: Added proper PopupMenu for Rename/Delete
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert,
+                              size: 18, color: Colors.grey),
+                          onSelected: (value) =>
+                              _performChatAction(value, chat),
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                                value: 'rename', child: Text('✏️ Rename')),
+                            const PopupMenuItem(
+                                value: 'folder',
+                                child: Text('📁 Move to Folder')),
+                            const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('🗑️ Delete',
+                                    style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                        onTap: () => Navigator.pop(context),
+                      )),
                 ],
               ),
             ),
@@ -768,11 +915,13 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                   IconButton(
-                      icon: const Icon(Icons.mic_none),
-                      color: Colors.grey,
-                      onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(
-                              content: Text("Hold to record voice note...")))),
+                    // 🔴 ডাইনামিক আইকন: রেকর্ড হলে স্টপ আইকন, না হলে মাইক আইকন
+                    icon: Icon(_isRecording
+                        ? Icons.stop_circle_rounded
+                        : Icons.mic_none),
+                    color: _isRecording ? Colors.redAccent : Colors.grey,
+                    onPressed: _toggleRecording,
+                  ),
                   IconButton(
                       icon: const Icon(Icons.send_rounded),
                       color: const Color(0xFF10A37F),
