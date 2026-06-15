@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart'; // Open Links
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:app_links/app_links.dart';
+import 'dart:async';
 
-const String baseUrl = "https://gstu-ai-backend.onrender.com";
+const String baseUrl = "http://192.168.1.2:8000";
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -235,6 +237,44 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks(); // 🔴 পেমেন্ট শেষে অ্যাপে ফেরার লিসেনার
+  }
+
+  void _initDeepLinks() {
+    _appLinks = AppLinks();
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      // ব্যাকএন্ড পেমেন্ট শেষে এই লিংকে পাঠাবে: gstuapp://payment/success
+      if (uri.path.contains('success')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🎉 Payment Successful! Pro Scholar Unlocked!"),
+            backgroundColor: Color(0xFF10A37F),
+          ),
+        );
+        // TODO: Update local UI state to show Pro Badge
+      } else if (uri.path.contains('fail') || uri.path.contains('cancel')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("⚠️ Payment Failed or Cancelled."),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -273,11 +313,15 @@ class _DashboardPageState extends State<DashboardPage> {
     final text = quickQuery ?? _controller.text.trim();
     if (text.isEmpty) return;
 
+    // 🔴 ইউজারের টোকেন এবং আইডি বের করা
+    final session = Supabase.instance.client.auth.currentSession;
+    final token = session?.accessToken ?? "guest_token";
+    final userId = session?.user.id ?? "guest_user";
+
     setState(() {
       _messages.add({"role": "user", "content": text});
       _isThinking = true;
       if (_messages.length == 1) {
-        // 🔴 BUG FIX 1: Safely adding Map to _recentChats
         _recentChats.insert(0, {
           "id": DateTime.now().millisecondsSinceEpoch.toString(),
           "title": text.length > 25 ? "${text.substring(0, 25)}..." : text
@@ -290,9 +334,16 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final response = await http.post(
         Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(
-            {"query": text, "model": _selectedModel, "context_from_files": ""}),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer $token" // 🔴 ব্যাকএন্ডকে টোকেন পাঠানো হচ্ছে
+        },
+        body: jsonEncode({
+          "user_id": userId, // 🔴 ব্যাকএন্ডের Pydantic মডেলের সাথে ম্যাচিং
+          "query": text,
+          "model": _selectedModel,
+          "context_from_files": ""
+        }),
       );
 
       if (response.statusCode == 200) {
@@ -300,10 +351,17 @@ class _DashboardPageState extends State<DashboardPage> {
         setState(() => _messages.add(
             {"role": "ai", "content": data['reply'] ?? "Error processing"}));
       } else {
-        setState(() => _messages.add({
-              "role": "ai",
-              "content": "Server returned ${response.statusCode}"
-            }));
+        // 🔴 ব্যাকএন্ডের আসল পাইথন এররটা ফ্লাটারে শো করানোর লজিক
+        String realError = "Error: ${response.statusCode}";
+        try {
+          final errorData = jsonDecode(utf8.decode(response.bodyBytes));
+          realError =
+              errorData['reply'] ?? errorData['detail'] ?? response.body;
+        } catch (_) {
+          realError = response.body;
+        }
+        setState(() => _messages.add(
+            {"role": "ai", "content": "⚠️ **Backend Crash:** $realError"}));
       }
     } catch (e) {
       setState(() => _messages.add(
@@ -342,8 +400,13 @@ class _DashboardPageState extends State<DashboardPage> {
   // 🚀 Send Audio to FastAPI Backend
   Future<void> _processVoiceNote(String path) async {
     setState(() => _isThinking = true);
+    final token = Supabase.instance.client.auth.currentSession?.accessToken ??
+        "guest_token";
+
     try {
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/voice'));
+      // 🔴 অডিও পাঠানোর সময়ও টোকেন দিতে হবে
+      request.headers['Authorization'] = 'Bearer $token';
       request.files.add(await http.MultipartFile.fromPath('audio_file', path));
 
       var response = await request.send();
@@ -390,6 +453,26 @@ class _DashboardPageState extends State<DashboardPage> {
     } else if (action == 'folder') {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Folder API active soon.")));
+    }
+  }
+
+  Future<void> _upgradeToPro() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Please login first!")));
+      return;
+    }
+
+    // লাইভ Streamlit অ্যাপ বা ব্যাকএন্ডের পেমেন্ট লিংক (যেখানে SSLCommerz ইন্টিগ্রেট করা)
+    // value_a=mobile দিয়ে ব্যাকএন্ডকে বোঝাচ্ছি যে রিকোয়েস্ট মোবাইল থেকে এসেছে
+    final paymentUrl =
+        "https://gstu-ai.onrender.com/payment?user_id=${user.id}&value_a=mobile";
+
+    final uri = Uri.parse(paymentUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri,
+          mode: LaunchMode.externalApplication); // ব্রাউজারে ওপেন হবে
     }
   }
 
@@ -483,172 +566,210 @@ class _DashboardPageState extends State<DashboardPage> {
     return Scaffold(
       drawer: Drawer(
         backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-        child: Column(
-          children: [
-            GestureDetector(
-              onTap: () {
-                setState(() => _messages.clear());
-                Navigator.pop(context);
-              },
-              child: Container(
-                padding: const EdgeInsets.only(
-                    top: 50, bottom: 20, left: 20, right: 20),
-                decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                        colors: [Color(0xFF10A37F), Color(0xFF065F46)])),
+        child: SafeArea(
+          // 🔴 সেফ এরিয়া অ্যাড করা হলো যাতে উপরে স্ট্যাটাস বারের সাথে না লাগে
+          child: Column(
+            children: [
+              // 🔴 ১. HEADER
+              GestureDetector(
+                onTap: () {
+                  setState(() => _messages.clear());
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.only(
+                      top: 20, bottom: 20, left: 20, right: 20),
+                  decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                          colors: [Color(0xFF10A37F), Color(0xFF065F46)])),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                          backgroundColor: Colors.white,
+                          radius: 25,
+                          child: Text("🎓", style: TextStyle(fontSize: 28))),
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("GSTU IR AI",
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold)),
+                            Text(userName,
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // 🔴 ২. ACTION BUTTONS ROW (শুধু New Chat এবং Save To থাকবে)
+              Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Row(
                   children: [
-                    const CircleAvatar(
-                        backgroundColor: Colors.white,
-                        radius: 25,
-                        child: Text("🎓", style: TextStyle(fontSize: 28))),
-                    const SizedBox(width: 15),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("GSTU IR AI",
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          Text(userName,
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 13)),
-                        ],
-                      ),
-                    ),
+                        child: PremiumHoverButton(
+                            text: "New Chat",
+                            icon: Icons.add_comment_rounded,
+                            isDark: isDark,
+                            onPressed: () {
+                              setState(() => _messages.clear());
+                              Navigator.pop(context);
+                            })),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: PremiumHoverButton(
+                            text: "Save To",
+                            icon: Icons.create_new_folder_outlined,
+                            isDark: isDark,
+                            onPressed: () => ScaffoldMessenger.of(context)
+                                .showSnackBar(const SnackBar(
+                                    content:
+                                        Text("Folder API active soon."))))),
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Expanded(
-                      child: PremiumHoverButton(
-                          text: "New Chat",
-                          icon: Icons.add_comment_rounded,
-                          isDark: isDark,
-                          onPressed: () {
-                            setState(() => _messages.clear());
-                            Navigator.pop(context);
-                          })),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: PremiumHoverButton(
-                          text: "Save To",
-                          icon: Icons.create_new_folder_outlined,
-                          isDark: isDark,
-                          onPressed: () => ScaffoldMessenger.of(context)
-                              .showSnackBar(const SnackBar(
-                                  content: Text("Folder API active soon."))))),
-                ],
-              ),
-            ),
-            if (userName.toLowerCase().contains("tashfin") ||
-                userName.toLowerCase().contains("admin"))
+
+              // 🔴 ৩. PRO UPGRADE BUTTON (একদম ক্লিন এবং আলাদা করে দেওয়া হলো)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: PremiumHoverButton(
-                    text: "Admin Dashboard",
-                    icon: Icons.analytics_outlined,
-                    isDark: isDark,
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text("Admin metrics opening...")))),
+                child: ElevatedButton.icon(
+                  onPressed: _upgradeToPro,
+                  icon:
+                      const Icon(Icons.workspace_premium, color: Colors.amber),
+                  label: const Text("Upgrade to Pro Scholar",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E293B),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side:
+                            const BorderSide(color: Colors.amber, width: 1.5)),
+                  ),
+                ),
               ),
-            const Divider(),
+              const SizedBox(height: 8),
 
-            // 🔴 DYNAMIC RECENT CHATS
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  const Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text("🕒 RECENT CHATS",
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey))),
-                  if (_recentChats.isEmpty)
+              // 🔴 ৪. ADMIN DASHBOARD
+              if (userName.toLowerCase().contains("tashfin") ||
+                  userName.toLowerCase().contains("admin"))
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0, vertical: 8.0),
+                  child: PremiumHoverButton(
+                      text: "Admin Dashboard",
+                      icon: Icons.analytics_outlined,
+                      isDark: isDark,
+                      onPressed: () => ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(
+                              content: Text("Admin metrics opening...")))),
+                ),
+
+              const Divider(),
+
+              // 🔴 ৫. DYNAMIC RECENT CHATS (Fixed map .toList)
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
                     const Padding(
-                        padding: EdgeInsets.only(left: 16),
-                        child: Text("No history yet.",
-                            style:
-                                TextStyle(color: Colors.grey, fontSize: 13))),
-                  ..._recentChats.map((chat) => ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.chat_bubble_outline,
-                            size: 20, color: Colors.grey),
-                        title: Text(chat['title'], // Fixed mapping
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Text("🕒 RECENT CHATS",
                             style: TextStyle(
-                                color:
-                                    isDark ? Colors.white70 : Colors.black87)),
-                        // 🔴 BUG FIX 2: Added proper PopupMenu for Rename/Delete
-                        trailing: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert,
-                              size: 18, color: Colors.grey),
-                          onSelected: (value) =>
-                              _performChatAction(value, chat),
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                                value: 'rename', child: Text('✏️ Rename')),
-                            const PopupMenuItem(
-                                value: 'folder',
-                                child: Text('📁 Move to Folder')),
-                            const PopupMenuItem(
-                                value: 'delete',
-                                child: Text('🗑️ Delete',
-                                    style: TextStyle(color: Colors.red))),
-                          ],
-                        ),
-                        onTap: () => Navigator.pop(context),
-                      )),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey))),
+                    if (_recentChats.isEmpty)
+                      const Padding(
+                          padding: EdgeInsets.only(left: 16),
+                          child: Text("No history yet.",
+                              style:
+                                  TextStyle(color: Colors.grey, fontSize: 13))),
+
+                    // 🔴 FIX: Added .toList() at the end
+                    ..._recentChats
+                        .map((chat) => ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.chat_bubble_outline,
+                                  size: 20, color: Colors.grey),
+                              title: Text(chat['title'],
+                                  style: TextStyle(
+                                      color: isDark
+                                          ? Colors.white70
+                                          : Colors.black87)),
+                              trailing: PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert,
+                                    size: 18, color: Colors.grey),
+                                onSelected: (value) =>
+                                    _performChatAction(value, chat),
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(
+                                      value: 'rename',
+                                      child: Text('✏️ Rename')),
+                                  const PopupMenuItem(
+                                      value: 'folder',
+                                      child: Text('📁 Move to Folder')),
+                                  const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('🗑️ Delete',
+                                          style: TextStyle(color: Colors.red))),
+                                ],
+                              ),
+                              onTap: () => Navigator.pop(context),
+                            ))
+                        .toList(),
+                  ],
+                ),
+              ),
+              const Divider(),
+
+              // 🔴 ৬. PRIVACY POLICY EXPANDER & LOGOUT
+              ExpansionTile(
+                leading: const Icon(Icons.security_rounded, color: Colors.grey),
+                title: const Text("Privacy & Security",
+                    style: TextStyle(fontSize: 14)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                        "1. End-to-End Encryption\n2. Zero Third-Party Sharing\n3. Local RAG Priority\nAll queries are secured using advanced encryption.",
+                        style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black54,
+                            fontSize: 12,
+                            height: 1.5)),
+                  )
                 ],
               ),
-            ),
-            const Divider(),
-
-            // 🔴 PRIVACY POLICY EXPANDER
-            ExpansionTile(
-              leading: const Icon(Icons.security_rounded, color: Colors.grey),
-              title: const Text("Privacy & Security",
-                  style: TextStyle(fontSize: 14)),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(
-                      "1. End-to-End Encryption\n2. Zero Third-Party Sharing\n3. Local RAG Priority\nAll queries are secured using advanced encryption.",
-                      style: TextStyle(
-                          color: isDark ? Colors.white54 : Colors.black54,
-                          fontSize: 12,
-                          height: 1.5)),
-                )
-              ],
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.logout_rounded, color: Colors.redAccent),
-              title: const Text("Sign Out",
-                  style: TextStyle(
-                      color: Colors.redAccent, fontWeight: FontWeight.bold)),
-              onTap: () async {
-                await Supabase.instance.client.auth.signOut();
-                if (!context.mounted) return;
-                Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => LoginPage(
-                            currentThemeMode: ThemeMode.system,
-                            onThemeChanged: (m) {})));
-              },
-            ),
-            const SizedBox(height: 10),
-          ],
+              ListTile(
+                leading:
+                    const Icon(Icons.logout_rounded, color: Colors.redAccent),
+                title: const Text("Sign Out",
+                    style: TextStyle(
+                        color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                onTap: () async {
+                  await Supabase.instance.client.auth.signOut();
+                  if (!context.mounted) return;
+                  Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => LoginPage(
+                              currentThemeMode: ThemeMode.system,
+                              onThemeChanged: (m) {})));
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
         ),
       ),
       appBar: AppBar(
@@ -878,7 +999,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Color(0xFF10A37F))),
                   const SizedBox(width: 10),
-                  Text("💭 Astra Core is analyzing...",
+                  Text("💭 Analyzing...",
                       style: TextStyle(
                           color: isDark ? Colors.white54 : Colors.black54,
                           fontStyle: FontStyle.italic,
