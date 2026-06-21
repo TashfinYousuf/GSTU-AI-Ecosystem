@@ -1,17 +1,56 @@
-# memory_db.py
 import os
 import logging
 import datetime
-from supabase import create_client, Client
+import streamlit as st
+from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 
+# Load local environment variables (if testing locally)
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Initialize Supabase Client securely
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# =====================================================================
+# 🛡️ FAIL-SAFE DATABASE CONNECTION (Reputation Protector)
+# =====================================================================
+
+def get_secret(key):
+    """Safely fetch secrets without crashing if Streamlit secrets are missing."""
+    try:
+        # First check OS environment variables (Local .env or Render)
+        val = os.getenv(key)
+        if val:
+            return val
+        # Then check Streamlit secrets (Streamlit Cloud)
+        return st.secrets.get(key)
+    except Exception:
+        return None
+
+# Fetch keys securely
+SUPABASE_URL = get_secret("SUPABASE_URL")
+SUPABASE_KEY = get_secret("SUPABASE_KEY")
+
+supabase: Client | None = None
+
+# Safeguard 1: Missing Keys (Shows professional maintenance message to users)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    logger.error("CRITICAL: Missing Supabase URL or Key in environment/secrets.")
+    st.error("🔧 **System Update in Progress:** We are configuring our secure servers for a better experience. Please check back in a few minutes.")
+    st.stop()
+
+# Safeguard 2: Connection Failure Protection & OAuth Fix
+try:
+    # 🔴 IMPORTANT: options=ClientOptions(flow_type="implicit") is required here 
+    # to prevent the Streamlit OAuth "missing verifier" memory wipe error!
+    supabase = create_client(
+        SUPABASE_URL, 
+        SUPABASE_KEY,
+        options=ClientOptions(flow_type="implicit")
+    )
+except Exception as e:
+    logger.error(f"CRITICAL DB ERROR: {e}")
+    st.error("📡 **Network Alert:** Unable to connect to the central intelligence core. Our tech team has been notified.")
+    st.stop()
+
 
 # ==========================================
 # 1. USER PROFILE & WEAKNESS GRAPH LOGIC

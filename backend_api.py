@@ -3,7 +3,9 @@ import re
 import pypdf
 import datetime
 from datetime import timedelta
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -26,7 +28,6 @@ from memory_db import get_or_create_student_profile
 from analytics_engine import generate_progress_report
 from core_agents import generate_cgpa_boost_plan
 
-
 # Load Environment Variables (.env)
 load_dotenv()
 
@@ -41,6 +42,21 @@ app.add_middleware(
 async def root():
     return {"message": "GSTU AI Assistant Backend is RUNNING! 🚀", "status": "Active"}
 
+# =====================================================================
+# 🔐 FLUTTER SECURITY: JWT Token Verification
+# =====================================================================
+security = HTTPBearer()
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Flutter অ্যাপ থেকে আসা API রিকোয়েস্টের টোকেন ভেরিফাই করবে।"""
+    token = credentials.credentials
+    
+    # 🔴 প্রোডাকশনে যখন Supabase Auth অ্যাড করবেন, তখন নিচের কমেন্টগুলো উঠিয়ে দেবেন:
+    # user_response = supabase.auth.get_user(token)
+    # if not user_response.user:
+    #     raise HTTPException(status_code=401, detail="Invalid or Expired Token")
+    
+    return token
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -145,7 +161,7 @@ async def create_study_plan(req: StudentRequest):
 # 🌐 THE MAIN CHAT API (UPDATED WITH AGENTIC CORE)
 # =====================================================================
 @app.post("/chat")
-async def chat_with_ai(request: ChatRequest):
+async def chat_with_ai(request: ChatRequest, token: str = Depends(verify_token)):
     user_query = request.query
     selected_model = request.model
     user_id = request.user_id
@@ -164,10 +180,15 @@ async def chat_with_ai(request: ChatRequest):
                 current_credits = user_info.get("reward_credits", 0)
                 
                 if current_credits < cost_per_premium_prompt:
-                    return {
-                        "reply": "⚠️ **Premium Model Locked!**\nআপনার পর্যাপ্ত ক্রেডিট নেই। এই অ্যাডভান্সড মডেলটি ব্যবহার করতে একটি অ্যাড দেখুন অথবা Pro Scholar প্যাকেজ আনলক করুন।",
-                        "sources": []
-                    }
+                    # 🔴 403 Status Code পাঠাচ্ছি যাতে অ্যাপে পপ-আপ দেখানো যায়
+                    return JSONResponse(
+                        status_code=403, 
+                        content={
+                            "error": "insufficient_credits",
+                            "reply": "⚠️ **Premium Model Locked!**\nYou don't have enough credit. View an ad or unlock the Pro Scholar package to use this advanced model.",
+                            "sources": []
+                        }
+                    )
                 else:
                     new_balance = current_credits - cost_per_premium_prompt
                     supabase.table("user_profiles").update({"reward_credits": new_balance}).eq("id", user_id).execute()
@@ -295,7 +316,15 @@ Provide detailed academic analysis:"""
         return {"reply": final_reply, "sources": formatted_sources_list}
         
     except Exception as e:
-        return {"reply": f"⚠️ **AI Engine Error:** `{str(e)}`", "sources": []}
+        # 🔴 500 Status Code পাঠাচ্ছি
+        return JSONResponse(
+            status_code=500, 
+            content={
+                "error": "server_error",
+                "reply": f"⚠️ **AI Engine Error:** `{str(e)}`",
+                "sources": []
+            }
+        )
     
 
 # =====================================================================
@@ -395,6 +424,7 @@ async def earn_credits(user_id: str, action_type: str):
 # 🔴 Streamlit ফ্রন্টএন্ডের লিংক (লোকাল টেস্টিংয়ের জন্য localhost:8501)
 # প্রজেক্ট লাইভ করার সময় এখানে Render বা আপনার আসল ডোমেইন লিংক বসাতে হবে
 FRONTEND_URL = "https://gstu-ai-backend.onrender.com"
+FLUTTER_APP_SCHEME = "gstuapp://payment"  # 🔴 মোবাইল অ্যাপের স্কিম
 
 # Initialize Admin Client (Bypasses RLS)
 admin_supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
@@ -418,6 +448,7 @@ async def payment_success(request: Request):
     status = form_data.get("status")
     tran_id = form_data.get("tran_id")
     val_id = form_data.get("val_id")
+    client_platform = form_data.get("value_a", "web") # 🔴 চেক করবে এটা মোবাইল নাকি ওয়েব
     
     if status == "VALID":
         # 1. Fetch User ID from our pending transactions
@@ -432,7 +463,7 @@ async def payment_success(request: Request):
                 "gateway_ref": val_id
             }).eq("id", tran_id).execute()
             
-            # 3. 🔴 UPGRADE USER TIER (Bypassing RLS with Admin Key)
+            # 3. UPGRADE USER TIER
             admin_supabase.table("subscriptions").upsert({
                 "user_id": user_id,
                 "plan": "pro_scholar",
@@ -440,14 +471,64 @@ async def payment_success(request: Request):
                 "expires_at": (datetime.datetime.now() + timedelta(days=30)).isoformat()
             }).execute()
             
-            # 4. Redirect browser back to Streamlit app (Success UI)
+            # 4. 🔴 Redirect based on platform
+            if client_platform == "mobile":
+                return RedirectResponse(url=f"{FLUTTER_APP_SCHEME}/success?tran_id={tran_id}", status_code=303)
+                
             return RedirectResponse(url=f"{FRONTEND_URL}?payment=success", status_code=303)
             
-    # If validation fails, redirect to fail page
+    # If validation fails
+    if client_platform == "mobile":
+        return RedirectResponse(url=f"{FLUTTER_APP_SCHEME}/failed", status_code=303)
     return RedirectResponse(url=f"{FRONTEND_URL}?payment=failed", status_code=303)
 
 @app.post("/api/payment/fail")
 @app.post("/api/payment/cancel")
 async def payment_fail_cancel(request: Request):
-    """Redirects user back to Streamlit if they cancel or payment fails"""
+    """Redirects user back to App or Streamlit if they cancel or payment fails"""
+    form_data = await request.form()
+    client_platform = form_data.get("value_a", "web")
+    
+    if client_platform == "mobile":
+        return RedirectResponse(url=f"{FLUTTER_APP_SCHEME}/cancelled", status_code=303)
+        
     return RedirectResponse(url=f"{FRONTEND_URL}?payment=cancelled", status_code=303)
+
+
+@app.post("/payment/success")
+async def payment_success(request: Request):
+    # ১. SSLCommerz থেকে ফেরত আসা ডাটা ধরা (Form Data হিসেবে রেসপন্স পাঠায়)
+    form_data = await request.form()
+    
+    # ২. ইউজারের আইডি বের করা 
+    # (SSLCommerz-এ পেমেন্ট রিকোয়েস্ট পাঠানোর সময় যে value_a বা value_b তে user_id পাঠিয়েছিলেন, সেটা এখানে ধরবেন
+    user_id = form_data.get("value_a") 
+    
+    if user_id:
+        try:
+            # ৩. Supabase ডাটাবেসে ইউজারের প্রোফাইল আপডেট করা
+            supabase.table('user_profiles').update({
+                "is_pro": True,
+                "tier": "Pro Scholar",
+                "payment_status": "Success"
+            }).eq("id", user_id).execute()
+            
+            print(f"✅ Success: User {user_id} upgraded to Pro Scholar!")
+            
+        except Exception as e:
+            print(f"⚠️ Error updating Supabase: {str(e)}")
+    else:
+        print("⚠️ Error: user_id not found in SSLCommerz response!")
+
+    # সব কাজ শেষে ফ্লাটার অ্যাপে রিডাইরেক্ট করে দেওয়া
+    return RedirectResponse(url="gstuai://callback/success", status_code=303)
+
+
+# পেমেন্ট ফেইল বা ক্যানসেল হলে
+@app.post("/payment/fail")
+async def payment_fail(request: Request):
+    return RedirectResponse(url="gstuai://callback/fail", status_code=303)
+
+@app.post("/payment/cancel")
+async def payment_cancel(request: Request):
+    return RedirectResponse(url="gstuai://callback/cancel", status_code=303)

@@ -697,37 +697,34 @@ class _DashboardPageState extends State<DashboardPage> {
                                   TextStyle(color: Colors.grey, fontSize: 13))),
 
                     // 🔴 FIX: Added .toList() at the end
-                    ..._recentChats
-                        .map((chat) => ListTile(
-                              dense: true,
-                              leading: const Icon(Icons.chat_bubble_outline,
-                                  size: 20, color: Colors.grey),
-                              title: Text(chat['title'],
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? Colors.white70
-                                          : Colors.black87)),
-                              trailing: PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert,
-                                    size: 18, color: Colors.grey),
-                                onSelected: (value) =>
-                                    _performChatAction(value, chat),
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(
-                                      value: 'rename',
-                                      child: Text('✏️ Rename')),
-                                  const PopupMenuItem(
-                                      value: 'folder',
-                                      child: Text('📁 Move to Folder')),
-                                  const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Text('🗑️ Delete',
-                                          style: TextStyle(color: Colors.red))),
-                                ],
-                              ),
-                              onTap: () => Navigator.pop(context),
-                            ))
-                        .toList(),
+                    ..._recentChats.map((chat) => ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.chat_bubble_outline,
+                              size: 20, color: Colors.grey),
+                          title: Text(chat['title'],
+                              style: TextStyle(
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.black87)),
+                          trailing: PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert,
+                                size: 18, color: Colors.grey),
+                            onSelected: (value) =>
+                                _performChatAction(value, chat),
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                  value: 'rename', child: Text('✏️ Rename')),
+                              const PopupMenuItem(
+                                  value: 'folder',
+                                  child: Text('📁 Move to Folder')),
+                              const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('🗑️ Delete',
+                                      style: TextStyle(color: Colors.red))),
+                            ],
+                          ),
+                          onTap: () => Navigator.pop(context),
+                        )),
                   ],
                 ),
               ),

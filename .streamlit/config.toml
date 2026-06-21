@@ -15,3 +15,6 @@ headless = true
 [browser]
 # This prevents the UI from trying to collect stats, making it snappier
 gatherUsageStats = false
+
+[client]
+showErrorDetails = false

@@ -20,7 +20,6 @@ load_dotenv(find_dotenv(), override=True)
 import streamlit as st
 import pandas as pd
 import urllib.parse
-import pypdf
 
 from streamlit_cookies_controller import CookieController
 from langchain_openai import ChatOpenAI
@@ -29,7 +28,6 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 
 
@@ -125,6 +123,18 @@ try:
 except ImportError as e:
     print(f"⚠️ Caching disabled. Missing library: {e}")
 
+# =====================================================================
+# 🛡️ GLOBAL SMART ERROR HANDLER (Admin vs User)
+# =====================================================================
+def display_smart_error(e, context="processing your request"):
+    """Shows raw error to Admin, but a polished message to Users."""
+    admin_emails = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
+    is_admin = st.session_state.get("user_email") in admin_emails
+    
+    if is_admin:
+        st.error(f"🔴 ADMIN ERROR LOG ({context}):\n\n{str(e)}")
+    else:
+        st.warning(f"⚠️ **GSTU Server Notice:** The network is currently handling heavy traffic while {context}. Please wait a moment and click **Regenerate (🔄)**.")
 
 # =====================================================================
 # ⚡ SUPER-FAST DATABASE CONNECTION (Cached in RAM)
@@ -154,6 +164,19 @@ dash_bg_b64 = get_base64_image("data/background_pic.png") or get_base64_image("b
 logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width: 55px; height: 55px; border-radius: 50%; margin-bottom: 5px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'>" if logo_b64 else "<span style='font-size: 45px;'>🎓</span>"
 
 # =====================================================================
+# 🛡️ GLOBAL SMART ERROR HANDLER (Admin vs User)
+# =====================================================================
+def display_smart_error(e, context="processing your request"):
+    """Shows raw error to Admin, but a polished message to Users."""
+    admin_emails = ["yousufaltashfin@gmail.com", "tashfin@gstu.edu"]
+    is_admin = st.session_state.get("user_email") in admin_emails
+    
+    if is_admin:
+        st.error(f"🔴 ADMIN ERROR LOG ({context}):\n\n{str(e)}")
+    else:
+        st.warning(f"⚠️ **GSTU Server Notice:** The network is currently handling heavy traffic while {context}. Please wait a moment and click **Regenerate (🔄)**.")
+
+# =====================================================================
 # ⚡ 2. INITIALIZE PAGE & CACHED LOGO
 # =====================================================================
 def load_app_logo():
@@ -178,11 +201,51 @@ st.set_page_config(
 
 
 # 🔴 INJECTING THE STYLE.CSS GLOBALLY
+@st.fragment
 def local_css(file_name):
     if os.path.exists(file_name):
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 local_css("assets/style.css")
+
+# =====================================================================
+# 🚀 1. ANTI-FLASH & SMOOTH UX PROTOCOL (Must run first)
+# =====================================================================
+st.markdown("""
+    <style>
+    /* 1. Hide the default ugly 'Running...' text at the top right */
+    [data-testid="stStatusWidget"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    /* 2. Hide the top loading progress bar completely */
+    .stApp > header {
+        display: none !important;
+    }
+    
+    /* 3. Smooth Fade-In Transition (Kills the sudden black flash) */
+    [data-testid="stAppViewContainer"] {
+        animation: smoothFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        /* background-color: #0f172a !important; Forces background color to stay dark during reload */
+    }
+    
+    @keyframes smoothFadeIn {
+        0% { opacity: 0.7; transform: scale(0.99); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* 4. Smooth Button Transitions (No sudden jumps) */
+    .stButton > button {
+        transition: all 0.2s ease-in-out !important;
+    }
+    
+    /* 5. Prevent elements from shifting during load */
+    .block-container {
+        transition: padding 0.3s ease;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # =====================================================================
 # 📱 MOBILE RESPONSIVENESS (Fixes Sidebar Overlap & Buttons)
@@ -390,6 +453,7 @@ for key, val in default_states.items():
 if "users_db" not in st.session_state:
     st.session_state.users_db = load_users()
 
+@st.cache_data
 def save_chat_history(history_list):
     current_user_id = st.session_state.get("username_id")
     if not current_user_id: return
@@ -438,6 +502,7 @@ if "cookies_ready" not in st.session_state:
     time.sleep(1.5) # ⏳ CRITICAL: পাইথনকে ডেটা পাঠানোর জন্য React-কে সময় দেওয়া
     st.rerun()
 
+@st.fragment
 def restore_auth():
     if st.session_state.get('authenticated'): return
 
@@ -1423,6 +1488,7 @@ def intent_router(query: str):
     return "academic_rag"
 
 
+@st.fragment
 def get_thinking_html():
     return """
     <div class="gstu-thinking">
@@ -1610,39 +1676,92 @@ def account_settings_dialog():
     # 🔴 Ensure Billing & Earn logic ONLY executes if NOT guest
     if not is_guest:
         with tab_billing:
-            # 🔴 SMART TOGGLE: এটাকে True করে দিলেই bKash চালু হয়ে যাবে!
-            USE_MANUAL_BKASH = True
+            # ==================================================
+            # 🚀 BUSINESS LOGIC TOGGLES (Founder Controls)
+            # ==================================================
+            IS_BETA_PHASE = True  # 🔴 100% Free Beta (Launch month)
+            USE_MANUAL_BKASH = True # 🔴 SMART TOGGLE: এটাকে True করে দিলেই bKash চালু হয়ে যাবে
             
             st.markdown("### 💎 Unlock Limitless AI Power")
+
+            # ==============================================
+            # 📊 THE CONVERSION HOOK (Usage Statistics)
+            # ==============================================
+            # Fetch actual usage from DB (with safe fallbacks so it never crashes)
+            try:
+                msg_res = supabase.table("ai_training_logs").select("id").eq("user_id", current_uid).execute()
+                total_messages = len(msg_res.data) if msg_res.data else 0
+            except:
+                total_messages = 0
+
+            # Placeholder for PDFs and Voice (Since they are not fully in DB yet, pulling from session or defaulting to 0)
+            total_pdfs = st.session_state.get("lifetime_pdfs", len(st.session_state.get("uploaded_files_cache", [])))
+            total_voice = st.session_state.get("lifetime_voice", 0)
+
+            # 🔴 The Psychological Trigger UI
+            st.markdown(f"""
+            <div style='background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; margin-bottom: 20px;'>
+                <h4 style='margin-top: 0; color: #f8fafc; font-size: 15px;'>📈 Your Lifetime Usage & Impact:</h4>
+                <div style='display: flex; justify-content: space-between; text-align: center; margin-top: 10px;'>
+                    <div><h2 style='margin: 0; color: #10a37f;'>{total_messages}</h2><p style='margin: 0; font-size: 12px; color: #94a3b8;'>Messages</p></div>
+                    <div><h2 style='margin: 0; color: #58A6FF;'>{total_pdfs}</h2><p style='margin: 0; font-size: 12px; color: #94a3b8;'>PDFs Analyzed</p></div>
+                    <div><h2 style='margin: 0; color: #e23670;'>{total_voice}</h2><p style='margin: 0; font-size: 12px; color: #94a3b8;'>Voice Sessions</p></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # =========================================================
+            # 🎉 FOUNDING SCHOLAR BETA BANNER
+            # =========================================================
+            if IS_BETA_PHASE:
+                st.markdown("""
+                <div style='background: linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(16,163,127,0.1) 100%); 
+                            border: 1px dashed #D4AF37; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: center;'>
+                    <h4 style='color: #FFD700; margin: 0 0 5px 0;'>🎉 Founding Scholar Beta Active!</h4>
+                    <p style='color: #e2e8f0; font-size: 13px; margin: 0;'>
+                        As an early adopter, you currently have <b>UNLIMITED</b> access to all Premium AI features. 
+                        Enjoy the limitless ecosystem until the Beta ends!
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # =========================================================
+            # 💳 PRICING CARDS & EXACT PAYMENT LOGIC
+            # =========================================================
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown("<div style='border: 1px solid #10a37f; padding: 15px; border-radius: 10px; margin-bottom: 15px;'><h4 style='color:#10a37f; margin:0;'>Basic Tier</h4><h2 style='margin:10px 0;'>$0 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Standard Rate Limits</p></div>", unsafe_allow_html=True)
-                if sub_tier == "free": st.button("✅ Current Plan", disabled=True, use_container_width=True)
-                else: st.button("Free Tier", disabled=True, use_container_width=True)
+                st.markdown("<div style='border: 1px solid rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px;'><h4 style='color:#94a3b8; margin:0;'>Basic Tier</h4><h2 style='margin:10px 0;'>৳0 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Standard Rate Limits</p></div>", unsafe_allow_html=True)
+                if sub_tier == "free" and not IS_BETA_PHASE: st.button("✅ Current Plan", disabled=True, use_container_width=True)
+                else: st.button("Free Tier Active", disabled=True, use_container_width=True)
                     
             with col2:
-                st.markdown("<div style='border: 1px solid #58A6FF; padding: 15px; border-radius: 10px; background: rgba(88,166,255,0.05); margin-bottom: 15px;'><h4 style='color:#58A6FF; margin:0;'>Pro Scholar</h4><h2 style='margin:10px 0;'>৳500 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Unlimited Premium AI</p></div>", unsafe_allow_html=True)
+                # Dynamic Border based on Beta Phase
+                pro_border = "#58A6FF" if not IS_BETA_PHASE else "rgba(88,166,255,0.3)"
                 
-                if sub_tier not in ["premium", "pro_scholar"]:
+                st.markdown(f"<div style='border: 1px solid {pro_border}; padding: 15px; border-radius: 10px; background: rgba(88,166,255,0.05); margin-bottom: 15px;'><h4 style='color:#58A6FF; margin:0;'>GSTU Pro</h4><h2 style='margin:10px 0;'>৳99 <span style='font-size: 14px;'>/mo</span></h2><p style='font-size: 13px;'>Unlimited Premium AI</p></div>", unsafe_allow_html=True)
+                
+                if IS_BETA_PHASE:
+                    st.button("🎁 Unlocked via Beta", disabled=True, use_container_width=True)
+                elif sub_tier not in ["premium", "pro_scholar"]:
 
                     if USE_MANUAL_BKASH:
                         # ---------------------------------------------
-                        # 📱 MANUAL BKASH SYSTEM (Activates later)
+                        # 📱 MANUAL BKASH SYSTEM
                         # ---------------------------------------------
-                        st.markdown("""<div style='background: rgba(255, 255, 255, 0.05); border: 1px dashed #58A6FF; padding: 12px; border-radius: 8px; margin-bottom: 12px;'><p style='margin: 0; font-size: 14px; color: #58A6FF; font-weight: bold;'>📱 bKash Personal: 01705587837</p><p style='margin: 4px 0 0 0; font-size: 12px; color: #cbd5e1;'>1. Send Money ৳500 to this number.<br>2. Enter your Transaction ID (TrxID) below.</p></div>""", unsafe_allow_html=True)
+                        st.markdown("""<div style='background: rgba(255, 255, 255, 0.05); border: 1px dashed #58A6FF; padding: 12px; border-radius: 8px; margin-bottom: 12px;'><p style='margin: 0; font-size: 14px; color: #58A6FF; font-weight: bold;'>📱 bKash Personal: 01705587837</p><p style='margin: 4px 0 0 0; font-size: 12px; color: #cbd5e1;'>1. Send Money ৳99 to this number.<br>2. Enter your Transaction ID (TrxID) below.</p></div>""", unsafe_allow_html=True)
                         trx_id = st.text_input("bKash TrxID:", placeholder="e.g. 9F8A7B6C5D", label_visibility="collapsed")
                         
                         if st.button("✅ Verify & Upgrade", type="primary", use_container_width=True):
                             if len(trx_id) > 6:
                                 with st.spinner("Submitting payment for verification..."):
                                     try:
-                                        supabase.table("manual_payments").insert({"user_id": current_uid, "user_email": st.session_state.get("user_email", "student@gstu.edu"), "trx_id": trx_id, "amount": 500, "status": "pending"}).execute()
+                                        supabase.table("manual_payments").insert({"user_id": current_uid, "user_email": st.session_state.get("user_email", "student@gstu.edu"), "trx_id": trx_id, "amount": 99, "status": "pending"}).execute()
                                         st.success("🎉 Request Sent! Admin will verify and upgrade your account shortly.")
                                     except Exception: st.error("⚠️ Database Error.")
                             else: st.error("⚠️ Enter a valid bKash TrxID.")
                     else:
                         # ---------------------------------------------
-                        # 💳 SSLCOMMERZ DEMO SYSTEM (Active Now)
+                        # 💳 SSLCOMMERZ DEMO SYSTEM 
                         # ---------------------------------------------
                         if st.button("💳 Pay via SSLCommerz", type="primary", use_container_width=True):
                             with st.spinner("Connecting to Secure Gateway..."):
@@ -1657,6 +1776,8 @@ def account_settings_dialog():
                                     st.markdown(f'<meta http-equiv="refresh" content="0; url={result}">', unsafe_allow_html=True)
                                 else: 
                                     st.error(f"⚠️ Gateway Error: {result}")
+                else:
+                    st.button("⭐ Pro Active", disabled=True, use_container_width=True)
                     
         with tab_earn:
             st.markdown("### 🎁 Earn Credits for Premium Models")
@@ -2019,7 +2140,6 @@ def admin_dashboard_dialog():
                     # 🔴 BULLETPROOF DATE PARSING
                     raw_date = t.get('created_at', '')
                     try:
-                        # '2026-06-09T18:03:51.537246+00:00' -> '2026-06-09 18:03:51'
                         clean_date = raw_date.split('.')[0].replace('T', ' ')
                         dt_obj = datetime.datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                         formatted_time = dt_obj.strftime("%d %b %Y, %I:%M %p")
@@ -2047,18 +2167,36 @@ def admin_dashboard_dialog():
     st.markdown("<hr><p style='font-size: 12px; color: gray;'>*All detailed query logs are safely stored in Supabase `ai_training_logs` table for future Fine-tuning.</p>", unsafe_allow_html=True)
 
 
-# Enterprise Standard Secret Management
-groq_api_key = os.environ.get("GROQ_API_KEY")
+# =====================================================================
+# 🛡️ ENTERPRISE SECRET MANAGEMENT (ANTI-CRASH & RETRY SYSTEM)
+# =====================================================================
+def get_api_key_safely(key_name):
+    for _ in range(3):
+        try:
+            val = os.environ.get(key_name)
+            if val: return val
+            val = st.secrets.get(key_name)
+            if val: return val
+        except Exception:
+            pass
+        time.sleep(0.5) # না পেলে আধা সেকেন্ড ওয়েট করে আবার খুঁজবে
+    return None
+
+groq_api_key = get_api_key_safely("GROQ_API_KEY")
 
 if not groq_api_key:
-    try:
-        groq_api_key = st.secrets.get("GROQ_API_KEY")
-    except Exception:
-        pass
-
-if not groq_api_key:
-    st.error("⚠️ GROQ_API_KEY is missing. Add it to .env or Streamlit secrets.")
-    st.stop()
+    # লাল এররের বদলে এন্টারপ্রাইজ লেভেলের মেইনটেন্যান্স মেসেজ
+    st.markdown("""
+    <div style='background: rgba(212, 175, 55, 0.1); border: 1px solid #D4AF37; padding: 20px; border-radius: 12px; margin: 20px 0; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); backdrop-filter: blur(10px);'>
+        <span style='font-size: 30px;'>🔄</span>
+        <h3 style='color: #FFD700; margin-top: 10px; margin-bottom: 5px;'>Secure Connection in Progress</h3>
+        <p style='color: #e2e8f0; font-size: 14px; margin-bottom: 0;'>
+            The GSTU AI Core is currently establishing a secure handshake with the cloud nodes. 
+            Please refresh the page in a few seconds.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop() # অ্যাপ এখানে থেমে যাবে, কিন্তু ইউজার কোনো এরর ট্রেসব্যাক দেখবে না
 
 # 7. State Management
 if "chat_history" not in st.session_state: st.session_state.chat_history = load_chat_history_cached()
@@ -2425,7 +2563,6 @@ with st.sidebar:
             pass
             
         # 3. If Routine exists, display it DYNAMICALLY (Handles both flat & nested JSON)
-        # 3. If Routine exists, display it DYNAMICALLY with PREMIUM UI
         if existing_data:
             st.success("✅ Loaded your active routine from the secure database.")
             plan = existing_data.get("routine_data", {})
@@ -2611,6 +2748,7 @@ with st.sidebar:
                         # 1. Extract Text from Uploaded Files
                         for f in uploaded_files:
                             if f.type == "application/pdf":
+                                import pypdf
                                 reader = pypdf.PdfReader(f)
                                 for page_num, page in enumerate(reader.pages):
                                     text = page.extract_text()
@@ -2647,6 +2785,7 @@ with st.sidebar:
 
                         # 4. Upload to Pinecone Vector DB
                         pinecone_api_key = os.getenv("PINECONE_API_KEY") or st.secrets.get("PINECONE_API_KEY")
+                        from langchain_pinecone import PineconeVectorStore
                         vectorstore = PineconeVectorStore(
                             index_name="gstu-knowledge-base", 
                             embedding=embeddings,
@@ -2787,33 +2926,45 @@ with st.sidebar:
 
 
     # ===================================================================
-    # 🚀 4. THE POWER-UPS DIALOG (With 1-Month Trial Logic)
+    # 🚀 4. THE POWER-UPS DIALOG (Beta & 1 month Trial Logic Integration)
     # ===================================================================
     def check_feature_lock(user_id):
-        """Phase 4: Real 30-Day Free Trial Logic connected to Supabase"""
-        if st.session_state.is_offline: return False, "Offline Mode"
+        """Phase 4: Real 30-Day Free Trial Logic (Beta Aware)"""
+        
+        # 🔴 THE GLOBAL BUSINESS FLAG (Make sure it matches billing tab)
+        IS_BETA_PHASE = True 
+        
+        if st.session_state.is_offline: 
+            return False, "Offline Mode"
+            
+        # 🟢 1. BETA BYPASS: If Beta is active, NO ONE gets locked out
+        if IS_BETA_PHASE:
+            return False, "Unlocked via Founding Scholar Beta"
         
         try:
-            # Fetch user creation date and tier
+            # 🟢 2. STANDARD SaaS LOGIC (Runs only after Beta ends)
             res = supabase.table("user_profiles").select("created_at, subscription_tier").eq("id", user_id).execute()
             if res.data:
                 tier = res.data[0].get("subscription_tier", "free")
+                
+                # Admins and Pro users are always unlocked
                 if tier in ["pro_scholar", "premium", "Admin"]: 
                     return False, "Premium Unlocked"
                 
                 created_at_str = res.data[0].get("created_at")
                 if created_at_str:
                     import datetime
-                    # Parse date and calculate difference
+                    # Parse date and calculate difference safely
                     created_date = datetime.datetime.fromisoformat(created_at_str.replace("Z", "+00:00")).replace(tzinfo=None)
                     days_used = (datetime.datetime.utcnow() - created_date).days
                     
                     if days_used > 30:
-                        return True, "Your 30-Day Golden Trial has expired!"
+                        return True, "Your 30-Day Trial has expired! Please upgrade to Pro."
                     else:
                         return False, f"Trial Active: {30 - days_used} days remaining."
         except Exception as e: 
             pass
+            
         return False, "Trial Active"
 
     @st.dialog("🚀 Academic Power-Ups & Gen-Z OS", width="large")
@@ -3161,6 +3312,7 @@ with st.sidebar:
                     
                     # 🔴 Callbacks used instead of st.rerun()
                     # BD Standard Negative Marking (-1.5 XP) + AI Training Loop
+                    @st.fragment
                     def submit_answer(c_opt, r_key, a_key, res_key):
                         st.session_state[a_key] = True
                         st.session_state.fc_daily_count += 1
@@ -3314,8 +3466,7 @@ with st.sidebar:
                         try:
                             import google.generativeai as genai
                             import PIL.Image
-                            import os
-                            
+  
                             # Fetch Google API Key
                             google_api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
                             genai.configure(api_key=google_api_key)
@@ -3735,7 +3886,7 @@ if llm:
         avatar = "👨🏻‍💻" if msg["role"] == "user" else "✨"
         with chat_container.chat_message(msg["role"], avatar=avatar):
             if msg["role"] == "assistant":
-                # 🟢 FIX: Attach badge ONLY during rendering!
+                # 🟢 Attach badge ONLY during rendering!
                 verifier_badge = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>"
                 st.markdown(verifier_badge + "\n\n" + msg["content"], unsafe_allow_html=True)
             else:
@@ -4128,6 +4279,7 @@ if llm:
                                         model="models/gemini-embedding-2", 
                                         google_api_key=os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
                                     )
+                                    from langchain_pinecone import PineconeVectorStore
                                     vectorstore = PineconeVectorStore(
                                         index_name="gstu-knowledge-base", 
                                         embedding=embeddings,
@@ -4414,19 +4566,19 @@ if llm:
                                     if verifier_result["status"] == "success":
                                         verifier_badge = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>"
                                         
-                                        # 🔴 Print to screen WITH badge
                                         st.markdown(verifier_badge, unsafe_allow_html=True)
-                                        streamed_text = st.write_stream(stream_verified())
-                                        
-                                        # 🟢 Save to DB WITHOUT the HTML badge
-                                        res_text = streamed_text
-                                        
+                
+                                        # 🟢 1. FUNCTION MUST BE DEFINED FIRST
                                         def stream_verified():
                                             for chunk in llm_engine.stream(verifier_result["messages"]):
                                                 if hasattr(chunk, 'content') and chunk.content: yield str(chunk.content)
                                         
+                                        # 🟢 2. THEN CALLED
                                         streamed_text = st.write_stream(stream_verified())
-                                        res_text = verifier_badge + "\n\n" + streamed_text # Save perfectly to history
+                                        
+                                        # 🟢 3. THEN SAVED
+                                        res_text = verifier_badge + "\n\n" + streamed_text
+
                                     else:
                                         st.warning("⚠️ Verifier Offline. Showing direct draft.")
                                         def stream_draft():
