@@ -1876,7 +1876,7 @@ with col_profile:
         
         st.markdown("---")
         st.markdown("<p style='font-size: 13px; font-weight: 600; margin-bottom: 5px;'>📸 Change Profile Picture</p>", unsafe_allow_html=True)
-        uploaded_pic = st.file_uploader("", type=["png", "jpg", "jpeg"], key="profile_pic_upload_dialog", label_visibility="collapsed")
+        uploaded_pic = st.file_uploader("Profile Picture", type=["png", "jpg", "jpeg"], key="profile_pic_upload_dialog", label_visibility="collapsed")
         
         if uploaded_pic is not None:
             bytes_data = uploaded_pic.getvalue()
@@ -2432,7 +2432,7 @@ with st.sidebar:
 
     sel_toggle_col, sel_label_col = st.columns([0.35, 0.65])
     with sel_toggle_col:
-        new_mode = st.toggle("", key="sel_mode_toggle", value=st.session_state.selection_mode)
+        new_mode = st.toggle("Select Mode", key="sel_mode_toggle", value=st.session_state.selection_mode, label_visibility="collapsed")
     with sel_label_col:
         st.markdown("<span style='font-size:13px;opacity:0.65;line-height:2.2;'>Selection mode</span>", unsafe_allow_html=True)
 
@@ -3211,7 +3211,7 @@ with st.sidebar:
                                 if msg.get("audio"):
                                     import urllib.parse
                                     safe_speech = urllib.parse.quote(msg['content'].replace('\n', ' ').replace('"', "'"))
-                                    st.components.v1.html(f"""
+                                    st.iframe(f"""
                                         <div style="display:flex; justify-content:flex-start; margin-top:5px;">
                                             <button id="db-tts-{real_idx}" onclick="toggleDbVoice{real_idx}()" 
                                             style="background:#10a37f; color:white; border:none; padding:5px 12px; border-radius:5px; cursor:pointer; font-weight:bold; font-size: 12px;">
@@ -3904,7 +3904,7 @@ if llm:
                     clean_text = re.sub(r'[*#_~`>|\[\]()-]', '', clean_text) 
                     clean_text = clean_text.replace('\n', ' ').replace('"', "'").strip()
                     safe_speech_uri = urllib.parse.quote(clean_text)
-                    st.components.v1.html(
+                    st.iframe(
                             f"""
                             <div style="display:flex; justify-content:center; align-items:center; height:100%;">
                                 <button id="tts-btn-{index}" onclick='toggleVoice{index}()' title="Listen / Stop" style="background:transparent; border:none; cursor:pointer; font-size:18px; filter: grayscale(100%); outline:none; padding-top:2px; transition: transform 0.2s ease;">🔊</button>
@@ -3967,10 +3967,10 @@ if llm:
                         📑
                     </button>
                     """
-                    st.components.v1.html(copy_html, height=30)
+                    st.iframe(copy_html, height=30)
                 with act_cols[5]:
                     app_url = os.getenv("APP_URL", "https://gstu-ai.streamlit.app")
-                    st.components.v1.html(f"""<button onclick="if(navigator.share)navigator.share({{url:'{app_url}'}})" style="background:transparent; border:none; cursor:pointer; font-size:20px;">📤</button>""", height=35)
+                    st.iframe(f"""<button onclick="if(navigator.share)navigator.share({{url:'{app_url}'}})" style="background:transparent; border:none; cursor:pointer; font-size:20px;">📤</button>""", height=35)
                 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -4728,7 +4728,7 @@ if llm:
         # 📜 ROBUST AUTO-SCROLL MECHANISM (Multi-Trigger Fix)
         # =====================================================================
 
-        st.components.v1.html(
+        st.iframe(
             """
             <script>
                 // Find the main Streamlit scrolling container and force it to the bottom
