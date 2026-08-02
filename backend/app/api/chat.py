@@ -2,6 +2,7 @@ import os
 import asyncio
 from google import genai 
 from google.genai import types
+from groq import Groq
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -30,22 +31,32 @@ class ChatRequest(BaseModel):
 async def real_ai_streamer(user_message: str, workspace_id: str):
     full_ai_response = ""
     
-    # 🔴 RAG Pipeline: Search ChromaDB for relevant uploaded documents
+    # 🔴 1. RAG Pipeline: Fetch Metadata (Source & Page)
     context_text = ""
     try:
         vectorstore = get_workspace_vectorstore(workspace_id)
-        # সবচেয়ে প্রাসঙ্গিক ৩টি পার্ট ফেচ করবে
+        # সবচেয়ে প্রাসঙ্গিক ৩টি খণ্ড ফেচ করবে
         similar_docs = vectorstore.similarity_search(user_message, k=3)
+        
         if similar_docs:
-            context_text = "\n\n".join([doc.page_content for doc in similar_docs])
+            for doc in similar_docs:
+                # PyPDFLoader ফাইলের নাম এবং পেজ নাম্বার (0-indexed) মেটাডেটায় সেভ রাখে
+                source_name = doc.metadata.get("source", "Unknown Document")
+                page_number = doc.metadata.get("page", 0) + 1  # পেজ 1 থেকে শুরু করার জন্য
+                
+                # কন্টেক্সটের সাথে সোর্স ট্যাগ যুক্ত করে দেওয়া
+                context_text += f"[Source: {source_name} | Page: {page_number}]\n{doc.page_content}\n\n"
+                
     except Exception as v_err:
         print(f"Vector search warning (No docs yet or empty DB): {v_err}")
 
-    # Prompt Engineering with RAG Context
+    # 🔴 2. Dynamic Prompt with Citation Instructions
     if context_text:
-        prompt = f"""You are an intelligent AI Assistant for this workspace. 
+        prompt = f"""You are an intelligent AI Assistant for this university workspace. 
 Answer the user's question using the provided context documents below. 
-If the answer is not contained in the context, use your general knowledge but mention it.
+
+IMPORTANT RULE: If the answer is found in the context, you MUST cite the source and page number at the end of the relevant sentence (e.g., "According to the rules... [Source: syllabus.pdf, Page: 2]").
+If the answer is not in the context, use your general knowledge but mention that it is not from the uploaded documents.
 
 --- CONTEXT FROM UPLOADED DOCUMENTS ---
 {context_text}
@@ -57,11 +68,11 @@ USER QUESTION: {user_message}
         prompt = user_message
 
     try:
+        # 🟢 1st Attempt: Google Gemini 2.5 Flash
         client = genai.Client(api_key=gemini_key)
         response = client.models.generate_content_stream(
             model='gemini-2.5-flash',
             contents=prompt,
-            # 🔴 AI-কে রিয়েল-টাইম ইন্টারনেট অ্যাক্সেস দেওয়া হলো
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}]
             )
@@ -77,22 +88,34 @@ USER QUESTION: {user_message}
                         await asyncio.sleep(0.015) 
                 yield "data:  \n\n"
                 
-        # Save AI Response to Database
-        db = next(get_db())
+    except Exception as gemini_err:
+        print(f"⚠️ Gemini Failed ({gemini_err}). Switching to GROQ Fallback...")
+        
+        # 🟠 2nd Attempt: Fallback to Groq (Llama-3)
         try:
-            ai_msg = Message(workspace_id=workspace_id, role="ai", content=full_ai_response.strip())
-            db.add(ai_msg)
-            db.commit()
-        except Exception as db_err:
-            print(f"DB Save Error: {db_err}")
+            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+            groq_response = groq_client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[
+                    {"role": "system", "content": "You are a helpful university AI assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=True
+            )
             
-        yield "data: [DONE]\n\n"
-        return
-
-    except Exception as e:
-        print(f"AI Generation Error: {e}")
-        yield f"data: [System Error: {str(e)}]\n\n"
-        yield "data: [DONE]\n\n"
+            for chunk in groq_response:
+                if chunk.choices[0].delta.content:
+                    word = chunk.choices[0].delta.content
+                    full_ai_response += word
+                    yield f"data: {word.replace('\n', ' ')}\n\n"
+                    await asyncio.sleep(0.015)
+            yield "data:  \n\n"
+            
+        except Exception as groq_err:
+            print(f"❌ Both Models Failed: {groq_err}")
+            yield f"data: [System Overloaded: Both AI engines are currently unavailable. Please try again in a minute.]\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
 
 @router.post("/stream")

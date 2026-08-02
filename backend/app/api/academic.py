@@ -1,52 +1,181 @@
-from fastapi import APIRouter, HTTPException
+import os
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List
+from google import genai
+from dotenv import load_dotenv
 
-router = APIRouter()
+from app.core.security import get_current_user
+from app.core.vector_store import get_workspace_vectorstore
 
+# 🔴 Force .env to load API Keys
+load_dotenv(override=True)
+gemini_key = os.getenv("GEMINI_API_KEY")
+
+router = APIRouter(tags=["Academic Tools"])
+
+# ==========================
+# 📌 Request Models
+# ==========================
 class RoutineRequest(BaseModel):
+    workspace_id: str
     study_hours: int = 4
     focus_areas: List[str] = ["International Relations Theories", "Political Geography"]
 
 class ExamRequest(BaseModel):
+    workspace_id: str
     topic: str
     difficulty: str = "University Level"
 
+class AcademicTaskRequest(BaseModel):
+    workspace_id: str
+    task_type: str  # "rubric", "summary", "flashcards"
+    topic: str
+
+class NoticeRequest(BaseModel):
+    raw_text: str
+
+# ==========================
+# 📌 API Routes
+# ==========================
+
 @router.post("/routine")
-async def generate_smart_routine(request: RoutineRequest):
+async def generate_smart_routine(
+    request: RoutineRequest,
+    current_user: dict = Depends(get_current_user)
+):
     """
-    ইউজারের ফোকাস এরিয়া এবং সময়ের ওপর ভিত্তি করে একটি প্রোডাক্টিভ স্টাডি রুটিন তৈরি করবে।
-    (ভবিষ্যতে এখানে LLM বসিয়ে ডাইনামিক করা হবে, আপাতত ফ্রন্টএন্ডের জন্য স্ট্রাকচার রেডি)
+    ইউজারের ফোকাস এরিয়া এবং সময়ের ওপর ভিত্তি করে LLM দিয়ে প্রোডাক্টিভ স্টাডি রুটিন তৈরি করবে।
     """
+    if not current_user.get("sub"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    prompt = f"""You are an expert Academic Advisor. 
+Create a highly productive {request.study_hours}-hour study routine focusing strictly on the following areas: {', '.join(request.focus_areas)}. 
+Format the routine beautifully in Markdown with specific time blocks, breaks (Pomodoro style), and actionable tasks.
+"""
     try:
-        # TODO: Connect with Groq/Llama for dynamic generation
-        return {
-            "status": "success",
-            "message": "Routine generated successfully",
-            "data": [
-                {"time": "08:00 AM", "task": f"Review notes on {request.focus_areas[0]}", "type": "study"},
-                {"time": "10:30 AM", "task": "Read primary sources on Global Power Dynamics", "type": "research"},
-                {"time": "12:00 PM", "task": "Break & Academic Refresh", "type": "break"},
-                {"time": "02:00 PM", "task": "Build AI Ecosystem Architecture (FastAPI & Next.js)", "type": "project"},
-            ]
-        }
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return {"status": "success", "result": response.text}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Routine Gen Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate routine.")
+
 
 @router.post("/mock-exam")
-async def generate_mock_exam(request: ExamRequest):
+async def generate_mock_exam(
+    request: ExamRequest,
+    current_user: dict = Depends(get_current_user)
+):
     """
-    নির্দিষ্ট টপিকের ওপর ডিপার্টমেন্টাল স্ট্যান্ডার্ডের মক এক্সাম জেনারেট করবে
+    ChromaDB (RAG) থেকে ডেটা নিয়ে নির্দিষ্ট টপিকের ওপর ডিপার্টমেন্টাল স্ট্যান্ডার্ডের মক এক্সাম জেনারেট করবে।
     """
+    if not current_user.get("sub"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # 🔴 1. Fetch Context from ChromaDB
+    context_text = ""
     try:
-         # TODO: Connect with RAG + LLM to fetch department past papers
-         return {
-             "status": "success",
-             "topic": request.topic,
-             "questions": [
-                 {"q_no": 1, "question": f"Critically analyze the impact of {request.topic} on modern global policies.", "marks": 10},
-                 {"q_no": 2, "question": "Evaluate the theoretical frameworks that support this concept.", "marks": 10}
-             ]
-         }
+        vectorstore = get_workspace_vectorstore(request.workspace_id)
+        similar_docs = vectorstore.similarity_search(request.topic, k=4)
+        if similar_docs:
+            context_text = "\n\n".join([doc.page_content for doc in similar_docs])
     except Exception as e:
-         raise HTTPException(status_code=500, detail=str(e))
+        print(f"Vector Search Warning: {e}")
+
+    # 🔴 2. Dynamic Prompting with RAG
+    prompt = f"""You are a University Professor generating a {request.difficulty} level Mock Exam on the topic '{request.topic}'.
+Please generate 3 broad analytical questions and 5 short conceptual questions.
+Use the following context from the department's syllabus/past papers if available. Provide an Answer Key or grading criteria at the end.
+
+--- KNOWLEDGE BASE CONTEXT ---
+{context_text}
+------------------------------
+"""
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return {"status": "success", "result": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to generate mock exam.")
+
+
+@router.post("/generate")
+async def generate_academic_content(
+    request: AcademicTaskRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Rubrics, Summary বা Flashcards তৈরি করার জন্য ইউনিভার্সাল রাউট।
+    """
+    if not current_user.get("sub"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    context_text = ""
+    try:
+        vectorstore = get_workspace_vectorstore(request.workspace_id)
+        similar_docs = vectorstore.similarity_search(request.topic, k=3)
+        if similar_docs:
+            context_text = "\n\n".join([doc.page_content for doc in similar_docs])
+    except Exception:
+        pass
+
+    if request.task_type == "rubric":
+        prompt = f"Create a detailed university-level grading rubric for an assignment on '{request.topic}'. Context: {context_text}"
+    elif request.task_type == "summary":
+        prompt = f"Provide an academic summary of '{request.topic}'. Context: {context_text}"
+    elif request.task_type == "flashcards":
+        prompt = f"Create 5 academic flashcards for studying '{request.topic}'. Format as Q: and A:. Context: {context_text}"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid task type.")
+
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return {"status": "success", "result": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Generation failed.")
+
+@router.post("/notice")
+async def generate_notice(
+    request: NoticeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ফ্যাকাল্টির দেওয়া সাধারণ টেক্সট বা ইনস্ট্রাকশনকে প্রফেশনাল বাইলিঙ্গুয়াল (বাংলা+ইংরেজি) দাপ্তরিক নোটিশে রূপান্তর করবে।
+    """
+    if not current_user.get("sub"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    prompt = f"""You are the official Administrative AI of the university department. 
+Convert the following casual message or instruction into a highly formal, professional academic notice in BOTH English and Bengali.
+
+Raw instruction from Teacher: "{request.raw_text}"
+
+Please format strictly as follows:
+### 📝 Official Notice (English)
+[Write the formal English notice here, maintaining professional university tone]
+
+### 📝 দাপ্তরিক বিজ্ঞপ্তি (বাংলা)
+[Write the formal Bengali translation of the notice here]
+"""
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return {"status": "success", "result": response.text}
+    except Exception as e:
+        print(f"Notice Gen Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate formal notice.")

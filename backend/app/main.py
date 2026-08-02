@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, workspaces, chat, knowledge, documents
+from app.api import auth, workspaces, chat, knowledge, documents, admin
 from app.api import academic
 
 # Initialize FastAPI App
@@ -26,6 +26,7 @@ app.include_router(academic.router, prefix="/api/v1/academic", tags=["Academic T
 app.include_router(workspaces.router, prefix="/api/v1/workspaces", tags=["Workspaces"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["AI Engine"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents & RAG"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin & Analytics"])
 
 @app.get("/")
 async def root():
