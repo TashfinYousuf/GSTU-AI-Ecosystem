@@ -12,7 +12,21 @@ import {
   FolderGit2,
   UserCircle,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  Brain,
+  Sparkles, 
+  ShieldCheck,
+  Plus,
+  MessageSquare, 
+  FolderOpen, 
+  MoreHorizontal, 
+  Edit,
+  Pencil, 
+  FolderDown, 
+  Share, 
+  Trash2,
+  Search,
+  Gamepad2
 } from "lucide-react";
 
 type Workspace = {
@@ -26,6 +40,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
@@ -78,71 +93,117 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-[#212121] flex text-gray-100 font-sans overflow-hidden selection:bg-indigo-500/30">
       
-      {/* 🔴 Sidebar (Collapsible & Dynamic Width) */}
-      <aside className={`${isSidebarOpen ? "w-64" : "w-0"} transition-all duration-300 ease-in-out bg-[#171717] flex flex-col shrink-0 z-30 overflow-hidden border-r border-white/5`}>
-        
-        {/* Logo/Brand & Close Button */}
-        <div className="p-4 flex items-center justify-between min-w-[16rem] border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-sm shadow-lg shadow-indigo-500/25">
-              OS
+      {/* 🔴 Sidebar (Absolute Locked & Independent Scroll) */}
+      <aside className={`${isSidebarOpen ? "w-64 border-r border-white/5" : "w-0 border-none"} transition-all duration-300 ease-in-out bg-[#171717] h-screen flex flex-col shrink-0 z-30 overflow-hidden`}>
+
+        {/* 🔴 STRICT WIDTH WRAPPER (Prevents squishing and overlapping) */}
+        <div className="flex flex-col h-full w-64">
+
+          {/* 1. STICKY HEADER & SEARCH BAR */}
+          <div className="shrink-0 p-4 border-b border-white/5 bg-[#171717] z-20">
+            <div className="flex items-center justify-between min-w-[14rem]">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-sm shadow-lg shadow-indigo-500/25">
+                  OS
+                </div>
+                <div>
+                  <h2 className="font-bold text-[15px] text-gray-200 leading-tight">GSTU IR</h2>
+                  <p className="text-[11px] text-indigo-400 font-medium">Student Ecosystem</p>
+                </div>
+              </div>
+              <button onClick={() => setIsSidebarOpen(false)} className="text-gray-400 hover:text-white p-1 rounded-md transition-colors">
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
             </div>
+
+            {/* Premium Search Bar */}
+            <div className="mt-5 relative min-w-[14rem]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-gray-500" />
+              <input 
+                type="text" 
+                placeholder="Search projects..." 
+                className="w-full bg-black/20 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-indigo-500/50 transition-colors shadow-inner"
+              />
+            </div>
+          </div>
+
+          {/* 2. SCROLLABLE NAVIGATION (Independent Scroll) */}
+          <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6 min-w-[16rem] custom-scrollbar">
+            
+            <Link href="/dashboard" className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${pathname === "/dashboard" ? "bg-[#2f2f2f] text-gray-100" : "text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}>
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="font-medium text-sm">Dashboard</span>
+            </Link>
+            
+            {/* Apps & Tools Section */}
             <div>
-              <h2 className="font-medium text-sm text-gray-200">GSTU IR</h2>
-              <p className="text-[11px] text-indigo-400">Student Ecosystem</p>
+              <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 ml-3">Apps & Tools</h3>
+              <div className="space-y-0.5">
+                <Link href="/dashboard/scholar-hub" className="flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium text-white-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                  <Brain className="w-4 h-4 text-indigo-400" /> Scholar Hub
+                </Link>
+                <Link href="/dashboard/study-hub" className={`flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-colors rounded-lg ${pathname.includes("study-hub") ? "bg-white/10 text-white" : "text-white-400 hover:text-white hover:bg-white/5"}`}>
+                  <Gamepad2 className="w-4 h-4 text-rose-400" /> Interactive Study Hub
+                </Link>
+                <Link href="/dashboard/copilot" className="flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium text-white-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                  <Sparkles className="w-4 h-4 text-amber-400" /> Academic Copilot
+                </Link>
+                <Link href="/dashboard/admin" className="flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium text-white-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> Faculty Node
+                </Link>
+              </div>
             </div>
+              
+            {/* Your Workspaces */}
+            <div>
+              <div className="flex items-center justify-between px-3 mb-2">
+                <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Your Workspaces</h3>
+                <button className="text-gray-500 hover:text-gray-300"><Plus className="w-3.5 h-3.5" /></button>
+              </div>
+              <div className="space-y-0.5">
+                {workspaces.map((ws) => (
+                  <Link key={ws.id} href={`/dashboard/workspaces/${ws.id}`} className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${pathname.includes(ws.id) ? "bg-[#2f2f2f] text-gray-100" : "text-white-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}>
+                    <FolderOpen className="w-4 h-4 shrink-0 text-gray-500" />
+                    <span className="font-medium text-[13px] truncate">{ws.name}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Chats (With 3-Dot Menu) */}
+            <div className="pb-4">
+              <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 px-3">Recent Chats</h3>
+              <div className="space-y-0.5">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="group flex items-center justify-between px-3 py-2 rounded-lg text-white-400 hover:bg-white/5 hover:text-gray-200 transition-colors cursor-pointer relative">
+                    <Link href={`/dashboard/chat/${i}`} className="flex items-center gap-3 truncate pr-2 flex-1">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-[13px] font-medium truncate">Political Geography Session {i}</span>
+                    </Link>
+                    <button onClick={(e) => { e.preventDefault(); setActiveMenuId(activeMenuId === i ? null : i); }} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-opacity p-0.5 rounded focus:outline-none">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {activeMenuId === i && (
+                      <div className="absolute right-4 top-8 w-44 bg-[#212121] border border-white/10 rounded-xl shadow-2xl z-50 py-1.5 animate-in fade-in zoom-in-95">
+                        <button className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium text-gray-300 hover:bg-white/5"><Pencil className="w-3.5 h-3.5"/> Rename</button>
+                        <button className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium text-gray-300 hover:bg-white/5"><FolderDown className="w-3.5 h-3.5"/> Move to...</button>
+                        <button className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium text-gray-300 hover:bg-white/5"><Share className="w-3.5 h-3.5"/> Share</button>
+                        <div className="h-px bg-white/10 my-1"></div>
+                        <button className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium text-red-400 hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5"/> Delete</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </nav>
+
+          {/* 3. STICKY USER FOOTER */}
+          <div className="shrink-0 p-3 min-w-[16rem] border-t border-white/5 bg-[#171717] z-20">
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium">
+              <LogOut className="w-4 h-4" /> Sign Out
+            </button>
           </div>
-          
-          {/* Collapse Icon INSIDE Sidebar */}
-          <button 
-            onClick={() => setIsSidebarOpen(false)} 
-            className="text-gray-400 hover:text-white p-1.5 rounded-md hover:bg-white/10 transition-colors"
-            title="Close sidebar"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Navigation Links & Workspaces */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5 min-w-[16rem]">
-          <Link href="/dashboard" className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${pathname === "/dashboard" ? "bg-[#2f2f2f] text-gray-100" : "text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}>
-            <LayoutDashboard className="w-4 h-4" />
-            <span className="font-medium text-sm">Dashboard</span>
-          </Link>
-
-          <div className="pt-6 pb-2">
-            <p className="px-3 text-xs font-semibold text-gray-500 tracking-wide uppercase">Your Workspaces</p>
-          </div>
-          
-          {/* Dynamic Workspaces Render */}
-          {isFetching ? (
-            <div className="px-3 py-2 text-sm text-gray-500 animate-pulse">Loading workspaces...</div>
-          ) : workspaces.length > 0 ? (
-            workspaces.map((ws) => (
-              <Link 
-                key={ws.id} 
-                href={`/dashboard/workspaces/${ws.id}`} 
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${pathname.includes(ws.id) ? "bg-[#2f2f2f] text-gray-100" : "text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}
-              >
-                {getWorkspaceIcon(ws.name)}
-                <span className="font-medium text-sm truncate">{ws.name}</span>
-              </Link>
-            ))
-          ) : (
-            <div className="px-3 py-2 text-sm text-gray-500">No workspaces found.</div>
-          )}
-        </nav>
-
-        {/* User Footer & Logout */}
-        <div className="p-3 min-w-[16rem] border-t border-white/5">
-          <button 
-            onClick={handleLogout}
-            disabled={isLoading}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>{isLoading ? "Signing out..." : "Sign Out"}</span>
-          </button>
         </div>
       </aside>
 

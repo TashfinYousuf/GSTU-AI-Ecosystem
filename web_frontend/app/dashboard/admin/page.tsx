@@ -29,7 +29,7 @@ export default function FacultyDashboard() {
   if (!stats) return <div className="flex h-screen items-center justify-center bg-[#121212] text-white">Loading OS Telemetry...</div>;
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 font-sans">
+    <div className="min-h-screen bg-[#121212] text-white p-8 md:p-12 lg:p-16 transition-all duration-300">
       
       {/* Header */}
       <div className="mb-10">
