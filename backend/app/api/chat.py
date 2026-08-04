@@ -17,7 +17,7 @@ from app.core.vector_store import get_workspace_vectorstore
 # 🔴 Force .env to win every time
 load_dotenv(override=True)
 
-# SDK-কে নিশ্চিত করতে GEMINI_API_KEY ম্যানুয়ালি ডিফাইন করা
+# SDK-কে নিশ্চিত করতে GEMINI_API_KEY ম্যানুয়ালি ডিফাইন করা
 gemini_key = os.getenv("GEMINI_API_KEY")
 if gemini_key:
     os.environ["GEMINI_API_KEY"] = gemini_key
@@ -35,16 +35,13 @@ async def real_ai_streamer(user_message: str, workspace_id: str):
     context_text = ""
     try:
         vectorstore = get_workspace_vectorstore(workspace_id)
-        # সবচেয়ে প্রাসঙ্গিক ৩টি খণ্ড ফেচ করবে
+        # সবচেয়ে প্রাসঙ্গিক ৩টি খণ্ড ফেচ করবে
         similar_docs = vectorstore.similarity_search(user_message, k=3)
         
         if similar_docs:
             for doc in similar_docs:
-                # PyPDFLoader ফাইলের নাম এবং পেজ নাম্বার (0-indexed) মেটাডেটায় সেভ রাখে
                 source_name = doc.metadata.get("source", "Unknown Document")
-                page_number = doc.metadata.get("page", 0) + 1  # পেজ 1 থেকে শুরু করার জন্য
-                
-                # কন্টেক্সটের সাথে সোর্স ট্যাগ যুক্ত করে দেওয়া
+                page_number = doc.metadata.get("page", 0) + 1
                 context_text += f"[Source: {source_name} | Page: {page_number}]\n{doc.page_content}\n\n"
                 
     except Exception as v_err:

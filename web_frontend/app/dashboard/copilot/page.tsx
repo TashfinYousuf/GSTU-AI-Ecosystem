@@ -110,7 +110,7 @@ export default function AcademicCopilotPage() {
               </div>
             )}
 
-            <button onClick={executeTask} disabled={!inputTopic || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium py-3.5 rounded-xl transition-all">
+            <button onClick={executeTask} disabled={!inputTopic || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-medium py-3.5 rounded-xl transition-all">
               <Sparkles className="w-5 h-5" /> Generate Now
             </button>
           </div>

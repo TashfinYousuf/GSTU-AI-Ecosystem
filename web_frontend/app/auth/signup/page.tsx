@@ -135,7 +135,7 @@ export default function SignupPage() {
             </div>
           </div>
 
-          <button type="submit" disabled={isLoading} className="w-full bg-linear-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white rounded-xl py-3 font-semibold shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-6">
+          <button type="submit" disabled={isLoading} className="w-full bg-linear-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white rounded-xl py-3 font-semibold shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all mt-6">
             {isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <>Create account <ArrowRight className="w-4 h-4" /></>}
           </button>
         </form>

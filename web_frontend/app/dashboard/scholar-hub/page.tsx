@@ -67,10 +67,10 @@ export default function ScholarHubPage() {
             <label className="block text-sm font-medium text-gray-400 mb-3">Research Topic or Thesis Domain</label>
             <input type="text" value={input1} onChange={(e) => setInput1(e.target.value)} placeholder="e.g., Geopolitics of South Asia, Neorealism..." className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all mb-6 text-[15px]" />
             <div className="flex gap-4">
-              <button onClick={() => handleAction("research", { topic: input1, task_mode: "gap_hunter" })} disabled={!input1 || isLoading} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium py-3.5 rounded-xl transition-all">
+              <button onClick={() => handleAction("research", { topic: input1, task_mode: "gap_hunter" })} disabled={!input1 || isLoading} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3.5 rounded-xl transition-all">
                 <Target className="w-4 h-4" /> Find Research Gap
               </button>
-              <button onClick={() => handleAction("research", { topic: input1, task_mode: "literature_review" })} disabled={!input1 || isLoading} className="flex-1 flex items-center justify-center gap-2 bg-[#0a0a0a] hover:bg-[#333] border border-white/10 disabled:opacity-50 text-white font-medium py-3.5 rounded-xl transition-all">
+              <button onClick={() => handleAction("research", { topic: input1, task_mode: "literature_review" })} disabled={!input1 || isLoading} className="flex-1 flex items-center justify-center gap-2 bg-[#0a0a0a] hover:bg-[#333] border border-white/10 text-white font-medium py-3.5 rounded-xl transition-all">
                 <Search className="w-4 h-4" /> Synthesize Literature
               </button>
             </div>
@@ -88,7 +88,7 @@ export default function ScholarHubPage() {
               <label className="block text-sm font-medium text-gray-400 mb-3">Your Argument / Answer</label>
               <textarea value={input2} onChange={(e) => setInput2(e.target.value)} placeholder="Write your perspective here..." rows={4} className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all resize-none text-[15px]" />
             </div>
-            <button onClick={() => handleAction("roast", { question: input1, answer: input2 })} disabled={!input1 || !input2 || isLoading} className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium py-3.5 rounded-xl transition-all">
+            <button onClick={() => handleAction("roast", { question: input1, answer: input2 })} disabled={!input1 || !input2 || isLoading} className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3.5 rounded-xl transition-all">
               <CheckCircle className="w-5 h-5" /> Submit for Critical Review
             </button>
           </div>
@@ -99,7 +99,7 @@ export default function ScholarHubPage() {
           <div className="bg-[#1e1e1e] border border-white/5 p-6 md:p-8 rounded-2xl shadow-xl">
             <label className="block text-sm font-medium text-gray-400 mb-3">Course Code (For Vector Search)</label>
             <input type="text" value={input1} onChange={(e) => setInput1(e.target.value)} placeholder="e.g., IR-210" className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all mb-6 text-[15px]" />
-            <button onClick={() => handleAction("predict", { workspace_id: "global", course_code: input1 })} disabled={!input1 || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium py-3.5 rounded-xl transition-all">
+            <button onClick={() => handleAction("predict", { workspace_id: "global", course_code: input1 })} disabled={!input1 || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-medium py-3.5 rounded-xl transition-all">
               <TrendingUp className="w-5 h-5" /> Run RAG Predictive Model
             </button>
           </div>

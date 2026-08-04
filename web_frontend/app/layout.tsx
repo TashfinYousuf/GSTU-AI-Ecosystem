@@ -13,9 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GSTU AI Assistant",
-  description: "Founded by Tashfin Yousuf",
-};
+  title: 'GSTU AI: Ultimate Ecosystem',
+  description: 'The centralized intelligence hub for International Relations, GSTU.',
+  icons: {
+    icon: '/logo.png', // 🔴 Webpage Tab Logo
+  },
+}
 
 export default function RootLayout({
   children,

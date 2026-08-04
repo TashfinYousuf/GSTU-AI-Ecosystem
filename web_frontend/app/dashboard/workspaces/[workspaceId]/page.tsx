@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, use } from "react";
 import { ArrowUp, Paperclip, Database, FileText, X, Trash2, Sparkles, Brain, PenTool, CheckSquare, Clock, Network, Bell, Mic, MicOff, Zap, ChevronDown, TrendingUp, BookOpen, Target } from "lucide-react";
 import { createClient } from "../../../utils/supabase/client";
 import dynamic from 'next/dynamic';
+import { useParams } from "next/navigation";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -26,6 +27,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   const [selectedModel, setSelectedModel] = useState("gemini");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
 
+  
   // 🔴 State for Mentor Mode
   const [isMentorMode, setIsMentorMode] = useState(false);
 
@@ -189,7 +191,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     }
   };
 
-  // --- Normal Chat Stream ---
+  // --- Normal Chat Stream (Server-Sent Events) ---
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -207,13 +209,13 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     // 🔴 Dynamic Endpoint Routing (Mentor Mode vs Regular Chat)
     const endpoint = isMentorMode 
       ? "http://localhost:8000/api/v1/mentor/chat" 
-      : "http://localhost:8000/api/v1/chat/stream";
+      : "http://localhost:8000/api/v1/chat/stream"; // আপনার নতুন স্ট্রিমিং এন্ডপয়েন্ট
 
     // 🔴 Smart Payload Injection
     const bodyPayload = isMentorMode
       ? { 
           message: userText, 
-          workspace_id: workspaceId,
+          workspace_id: workspaceId, // URL প্যারামিটার থেকে
           student_context: { 
             major: "International Relations", 
             semester: "2.1", 
@@ -226,18 +228,24 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     try {
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${session.access_token}` 
+        },
         body: JSON.stringify(bodyPayload)
       });
       
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw new Error("Failed to connect to AI Core");
       
+      // 🔴 ReadableStream Decoder Logic
       const reader = res.body?.getReader();
       const decoder = new TextDecoder("utf-8");
       let done = false;
       const aiMsgId = (Date.now() + 1).toString();
-      setMessages(prev => [...prev, { id: aiMsgId, role: "ai", content: "" }]);
-      setIsTyping(false);
+      
+      // Add empty AI message block to UI
+      setMessages(prev => [...prev, { id: aiMsgId, role: "assistant", content: "" }]);
+      setIsTyping(false); // Stop typing indicator since stream has started
 
       while (!done) {
         const { value, done: readerDone } = await reader!.read();
@@ -245,16 +253,25 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split("\n").filter(line => line.trim() !== "");
+          
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const text = line.replace("data: ", "");
               if (text === "[DONE]") { done = true; break; }
-              setMessages(prev => prev.map(msg => msg.id === aiMsgId ? { ...msg, content: msg.content + text + " " } : msg));
+              
+              // Append text chunk to the specific AI message
+              setMessages(prev => prev.map(msg => 
+                msg.id === aiMsgId ? { ...msg, content: msg.content + (text.trim() ? text + " " : "") } : msg
+              ));
             }
           }
         }
       }
-    } catch (error) { setIsTyping(false); }
+    } catch (error) { 
+      console.error(error);
+      setIsTyping(false); 
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: "❌ **System Error:** Failed to stream response. Please try again." }]);
+    }
   };
 
   // 🔴 Voice Input States
@@ -410,7 +427,6 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               </button>
             </div>
           </form>
-
         </div>
       </div>
     </div>
