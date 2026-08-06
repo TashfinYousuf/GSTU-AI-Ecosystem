@@ -13,17 +13,27 @@ export default function DepartmentHubPage() {
   const [syllabus, setSyllabus] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Helper for Empty States
+  const EmptyState = ({ title, message, icon: Icon }: any) => (
+    <div className="flex flex-col items-center justify-center py-24 text-gray-500 border border-dashed border-white/10 rounded-3xl bg-[#171717]/50">
+      <Icon className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
+      <h3 className="text-xl font-bold text-gray-300 mb-2">{title}</h3>
+      <p className="text-sm text-gray-500 max-w-md text-center">{message}</p>
+    </div>
+  );
+
   // 🔴 Data Fetching Hook
   useEffect(() => {
     async function fetchDepartmentData() {
       setIsLoading(true);
       try {
-        if (activeTab === "notices" && notices.length === 0) {
+        if (activeTab === "notices") {
           const res = await fetchAPI("/department/notices");
-          setNotices(res.data || []);
-        } else if (activeTab === "syllabus" && syllabus.length === 0) {
+          // Ensure it's setting the array correctly
+          setNotices(res?.data || []);
+        } else if (activeTab === "syllabus") {
           const res = await fetchAPI("/department/syllabus");
-          setSyllabus(res.data || []);
+          setSyllabus(res?.data || []);
         }
       } catch (error) {
         console.error("Error fetching department data:", error);
@@ -74,7 +84,11 @@ export default function DepartmentHubPage() {
           <div className="space-y-4 animate-in fade-in">
             {isLoading ? (
               <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-blue-500 animate-spin" /></div>
-            ) : notices.filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase())).map((notice) => (
+            ) : notices.length === 0 ? (
+              <EmptyState title="No Notices Found" message="There are currently no active notices from the department administration. Please check back later." icon={Bell} />
+            ) : (
+              notices.filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase())).map((notice) => (
+              
               <div key={notice.id} className="bg-[#1e1e1e] border border-white/5 hover:border-blue-500/30 p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all group cursor-pointer">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
@@ -92,39 +106,60 @@ export default function DepartmentHubPage() {
                   <Download className="w-4 h-4" /> Download PDF
                 </button>
               </div>
-            ))}
+            ))
+            )}
           </div>
         )}
 
         {/* 📚 TAB 2: SYLLABUS */}
         {activeTab === "syllabus" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in">
-            {syllabus.map((course, idx) => (
-              <div key={idx} className="bg-[#1e1e1e] border border-white/5 hover:border-emerald-500/30 p-6 rounded-2xl transition-all group">
-                <div className="flex justify-between items-start mb-4">
-                  <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-lg">{course.code}</span>
-                  <span className="text-gray-500 text-xs font-medium">{course.credits} Credits</span>
+          <div className="animate-in fade-in">
+            {isLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>
+            ) : syllabus.length === 0 ? (
+              <EmptyState title="Syllabus Not Uploaded" message="The course curriculum has not been uploaded to the digital database yet." icon={BookOpen} />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {syllabus.map((course, idx) => (
+                <div key={idx} className="bg-[#1e1e1e] border border-white/5 hover:border-emerald-500/30 p-6 rounded-2xl transition-all group">
+                    <div className="flex justify-between items-start mb-4">
+                    <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-lg">{course.code}</span>
+                    <span className="text-gray-500 text-xs font-medium">{course.credits} Credits</span>
+                    </div>
+                    <h3 className="text-white font-bold text-lg mb-6 leading-snug">{course.title}</h3>
+                    <div className="flex gap-2">
+                    <button className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
+                        <BookOpen className="w-4 h-4"/> View
+                    </button>
+                    <button className="bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-400 text-gray-400 p-2.5 rounded-xl transition-colors">
+                        <Download className="w-4 h-4"/>
+                    </button>
+                    </div>
                 </div>
-                <h3 className="text-white font-bold text-lg mb-6 leading-snug">{course.title}</h3>
-                <div className="flex gap-2">
-                  <button className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
-                    <BookOpen className="w-4 h-4"/> View
-                  </button>
-                  <button className="bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-400 text-gray-400 p-2.5 rounded-xl transition-colors">
-                    <Download className="w-4 h-4"/>
-                  </button>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 
-        {/* Other Tabs Placeholder */}
-        {(activeTab === "routines" || activeTab === "results" || activeTab === "gallery") && (
-          <div className="flex flex-col items-center justify-center py-32 text-gray-500 border-2 border-dashed border-white/5 rounded-3xl animate-in fade-in">
-            <Building2 className="w-16 h-16 mb-4 opacity-20" />
-            <p className="text-lg font-medium text-gray-400">Database Integration Pending</p>
-            <p className="text-sm mt-1">This module will be connected to the GSTU backend securely.</p>
+        {/* 📅 TAB 3: ROUTINES */}
+        {activeTab === "routines" && (
+          <div className="animate-in fade-in">
+            <EmptyState title="No Active Routines" message="Class and examination routines will appear here once published by the faculty." icon={Calendar} />
+          </div>
+        )}
+
+        {/* 🎓 TAB 4: RESULTS */}
+        {activeTab === "results" && (
+          <div className="animate-in fade-in">
+            <EmptyState title="Results Unpublished" message="Semester results are currently unavailable or have not been officially published yet." icon={GraduationCap} />
+          </div>
+        )}
+        
+        {/* 🖼️ TAB 5: GALLERY */}
+        {activeTab === "gallery" && (
+          <div className="animate-in fade-in">
+            <EmptyState title="Gallery Empty" message="Departmental event photos and memories will be showcased here." icon={ImageIcon} />
           </div>
         )}
 

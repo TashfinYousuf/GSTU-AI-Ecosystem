@@ -1,6 +1,7 @@
 import { createClient } from "./supabase/client";
 
-const BASE_URL = "http://localhost:8000/api/v1";
+// 🔴 Strictly use 127.0.0.1 to avoid browser CORS/Origin blocks
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
 
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const supabase = createClient();

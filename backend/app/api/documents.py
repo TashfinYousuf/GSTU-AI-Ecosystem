@@ -1,5 +1,6 @@
 import os
-import shutil
+import io
+from PyPDF2 import PdfReader
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from langchain_community.document_loaders import PyPDFLoader
@@ -10,53 +11,52 @@ from app.core.database import get_db
 from app.models.user import Document
 from app.core.vector_store import get_workspace_vectorstore
 
-router = APIRouter(tags=["Documents & RAG"])
+router = APIRouter()
 UPLOAD_DIR = "./temp_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/upload")
-async def upload_document(
+async def upload_document_to_memory(
     workspace_id: str = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    """Zero-Footprint RAG: ফাইল সার্ভারের ফোল্ডারে সেভ না করে সরাসরি মেমোরি থেকে ডাটাবেসে পাঠাবে"""
     if not current_user.get("sub"):
         raise HTTPException(status_code=401, detail="Unauthorized")
+        
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
     try:
-        # ১. RAG প্রসেসিং
-        loader = PyPDFLoader(file_path)
-        docs = loader.load()
-        # Source Metadata অ্যাড করা (ভবিষ্যতে Citation এর জন্য লাগবে)
-        for doc in docs:
-            doc.metadata["source"] = file.filename 
+        # 🔴 1. Read bytes directly into RAM (Bypasses OS Hard Drive)
+        file_bytes = await file.read()
+        pdf_reader = PdfReader(io.BytesIO(file_bytes))
+        
+        docs = []
+        for i, page in enumerate(pdf_reader.pages):
+            text = page.extract_text()
+            if text:
+                # Meta data injection
+                docs.append(Document(page_content=text, metadata={"source": file.filename, "page": i + 1}))
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        if not docs:
+            raise HTTPException(status_code=400, detail="PDF is empty or unreadable (scanned images).")
+
+        # 🔴 2. Chunking in RAM
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
         chunks = text_splitter.split_documents(docs)
 
+        # 🔴 3. Direct push to Pinecone Vector DB
         vectorstore = get_workspace_vectorstore(workspace_id)
         vectorstore.add_documents(chunks)
 
-        # ২. ডেটাবেসে ফাইলের রেকর্ড সেভ করা
-        new_doc = Document(workspace_id=workspace_id, filename=file.filename)
-        db.add(new_doc)
-        db.commit()
-
-        return {"message": f"Successfully processed {file.filename}"}
+        return {"status": "success", "message": f"Super-fast memory upload successful for {file.filename} ({len(chunks)} chunks)."}
 
     except Exception as e:
-        print(f"Upload Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process document")
-    finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        print(f"Memory RAG Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse document from memory.")
+
 
 # 🔴 New Route: ওয়ার্কস্পেসের সব আপলোড করা ফাইলের লিস্ট পাওয়ার জন্য
 @router.get("/list/{workspace_id}")

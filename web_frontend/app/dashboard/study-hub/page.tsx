@@ -1,18 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { Gamepad2, Star, Flame, CheckCircle, XCircle, ArrowRight, Trophy, LineChart, Swords, Brain, ShieldAlert } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Gamepad2, Star, Flame, CheckCircle, XCircle, ArrowRight, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2 } from "lucide-react";
+import { fetchAPI } from "../../utils/api"; // 🔴 Import fetchAPI
 
 export default function InteractiveStudyHubPage() {
-  // Navigation State
-  const [activeTab, setActiveTab] = useState("flashcards"); // flashcards, predictor, debate, battle
+  const [activeTab, setActiveTab] = useState("flashcards");
+  // 🔴 Predictor State
+  const [courseCode, setCourseCode] = useState("");
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [predictions, setPredictions] = useState<any[]>([]);
+
+  // 🔴 Debate State
+  const [debateStance, setDebateStance] = useState("");
+  const [aiPersona, setAiPersona] = useState("Aggressive Realist");
+  const [isDebating, setIsDebating] = useState(false);
+  const [debateResponse, setDebateResponse] = useState("");
   
-  // Gamification States
-  const [xp, setXp] = useState(120);
-  const [streak, setStreak] = useState(3);
+  // 🔴 Dynamic Gamification States
+  const [xp, setXp] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   
   // Flashcard States
   const [topic, setTopic] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [flashcards, setFlashcards] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [cards, setCards] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -20,17 +33,101 @@ export default function InteractiveStudyHubPage() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [difficulty, setDifficulty] = useState("Medium");
 
-  // Dummy Generator for UI
-  const handleGenerateCards = () => {
-    setIsGenerating(true);
+  // Battle Mode State
+  const [isSearching, setIsSearching] = useState(false);
+
+  const handleFindOpponent = () => {
+    setIsSearching(true);
+    // Simulate matchmaking delay
     setTimeout(() => {
-      setCards([
-        { q: "What is the primary focus of Neorealism?", options: ["Human Nature", "Anarchic System", "Institutions", "Economy"], ans: "Anarchic System", exp: "Kenneth Waltz argued that the anarchic structure of the international system forces states to seek security." }
-      ]);
+      alert("No opponents currently online in your batch. Try challenging a bot in the Debate Arena for now!");
+      setIsSearching(false);
+    }, 3500);
+  };
+
+  // 🔴 1. DYNAMIC FLASHCARDS
+  const handleGenerateCards = async () => {
+    setIsGenerating(true);
+    setCards([]);
+    try {
+      const res = await fetchAPI("/study/gamify", {
+        method: "POST",
+        body: JSON.stringify({ topic, feature_type: "flashcards", extra_data: { difficulty } })
+      });
+      if (res.data && res.data.flashcards) {
+        // Mapping backend JSON to Frontend State
+        const formatted = res.data.flashcards.map((c: any) => ({
+          q: c.q, options: c.options, ans: c.correct_option, exp: c.explanation
+        }));
+        setCards(formatted);
+      }
+    } catch (error) {
+      alert("Failed to generate flashcards.");
+    } finally {
       setIsGenerating(false);
       setCurrentIndex(0);
       setSelectedAnswer(null);
-    }, 1500);
+    }
+  };
+
+  // 🔴 2. DYNAMIC EXAM PREDICTOR
+  const handlePredictExam = async () => {
+    setIsPredicting(true);
+    try {
+      const res = await fetchAPI("/study/gamify", {
+        method: "POST",
+        body: JSON.stringify({ topic: courseCode, feature_type: "predictor", extra_data: {} })
+      });
+      if (res.data && res.data.predictions) {
+        setPredictions(res.data.predictions);
+      }
+    } catch (error) {
+      alert("Failed to predict exam topics.");
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  // 🔴 3. DYNAMIC DEBATE ARENA
+  const handleStartDebate = async () => {
+    setIsDebating(true);
+    try {
+      const res = await fetchAPI("/study/gamify", {
+        method: "POST",
+        body: JSON.stringify({ topic: debateStance, feature_type: "debate", extra_data: { persona: aiPersona } })
+      });
+      if (res.data) {
+        setDebateResponse(res.data); // AI's counter argument
+      }
+    } catch (error) {
+      alert("Failed to initialize debate.");
+    } finally {
+      setIsDebating(false);
+    }
+  };
+
+  // Fetch Initial Gamification Data
+  useEffect(() => {
+    async function loadGamification() {
+      try {
+        const res = await fetchAPI("/study/profile");
+        if (res.status === "success") {
+          setXp(res.xp);
+          setStreak(res.streak);
+          setLeaderboard(res.leaderboard || []);
+        }
+      } catch (error) {
+        console.error("Failed to load gamification profile");
+      }
+    }
+    loadGamification();
+  }, []);
+
+  // 🔴 Mr. Atlas Dynamic Brain
+  const getAtlasQuote = () => {
+    if (xp === 0) return "Zero XP? Are you studying or just staring at the screen? Start swiping those flashcards!";
+    if (streak > 2) return `Woah, ${streak} streak! You are officially a geopolitical threat right now! Keep pushing!`;
+    return `Okay, ${xp} XP is a decent start. But your retention rate won't fix itself. Next card!`;
   };
 
   const handleAnswerSubmit = (opt: string) => {
@@ -154,40 +251,89 @@ export default function InteractiveStudyHubPage() {
             </div>
           )}
 
-          {/* 📈 TAB 2: EXAM PREDICTOR */}
+          {/* 📈 TAB 2: EXAM PREDICTOR (Dynamic UI) */}
           {activeTab === "predictor" && (
-            <div className="bg-[#1e293b]/40 border border-emerald-500/20 rounded-3xl p-8 animate-in fade-in h-[500px]">
+            <div className="bg-[#1e293b]/40 border border-emerald-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><LineChart className="w-5 h-5 text-emerald-400"/> Predictive Exam Analytics</h3>
               <p className="text-sm text-gray-400 mb-6">AI analyzes past papers and current geopolitical trends from the Knowledge Base to predict upcoming exam topics.</p>
               <div className="flex gap-4 mb-8">
-                <input type="text" placeholder="Enter Course Code (e.g., IR-202)" className="flex-1 bg-[#0f172a] border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-emerald-500" />
-                <button className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-xl transition-colors shadow-lg">Run Engine</button>
+                <input type="text" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} placeholder="Enter Course Code (e.g., IR-202)" className="flex-1 bg-[#0f172a] border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-emerald-500" />
+                <button onClick={handlePredictExam} disabled={!courseCode || isPredicting} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold px-8 py-4 rounded-xl transition-colors shadow-lg">
+                  {isPredicting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Run Engine"}
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {predictions.map((pred, i) => (
+                  <div key={i} className="p-5 bg-[#0f172a] border border-white/5 rounded-xl flex justify-between items-center">
+                    <div>
+                      <h4 className="text-white font-bold text-lg">{pred.topic}</h4>
+                      <p className="text-sm text-gray-400 mt-1">{pred.reason}</p>
+                    </div>
+                    <div className="text-center bg-emerald-500/10 px-4 py-2 rounded-lg border border-emerald-500/20">
+                      <span className="block text-2xl font-black text-emerald-400">{pred.probability}%</span>
+                      <span className="text-[10px] uppercase font-bold text-emerald-500">Probability</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* ⚔️ TAB 3: DEBATE ARENA */}
+          {/* ⚔️ TAB 3: DEBATE ARENA (Dynamic UI) */}
           {activeTab === "debate" && (
-            <div className="bg-[#2a1215]/40 border border-indigo-500/20 rounded-3xl p-8 animate-in fade-in h-[500px]">
+            <div className="bg-[#2a1215]/40 border border-indigo-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Swords className="w-5 h-5 text-indigo-400"/> AI Debate Arena</h3>
               <p className="text-sm text-gray-400 mb-6">Challenge the AI on any geopolitical topic. An unbiased AI Judge will score your factual accuracy.</p>
               <div className="space-y-5">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Debate Topic / Your Stance</label>
-                  <textarea rows={3} placeholder="e.g., Sanctions are ineffective in modern geopolitics because..." className="w-full bg-[#1a0b0d] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 resize-none"></textarea>
+                  <textarea value={debateStance} onChange={(e) => setDebateStance(e.target.value)} rows={3} placeholder="e.g., Sanctions are ineffective in modern geopolitics because..." className="w-full bg-[#1a0b0d] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 resize-none"></textarea>
                 </div>
-                <button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-colors shadow-lg mt-2">Enter Arena 🥊</button>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">AI Persona</label>
+                  <select value={aiPersona} onChange={(e) => setAiPersona(e.target.value)} className="w-full bg-[#1a0b0d] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none">
+                    <option value="Aggressive Realist">Aggressive Realist</option>
+                    <option value="Liberal Institutionalist">Liberal Institutionalist</option>
+                    <option value="Marxist Scholar">Marxist Scholar</option>
+                  </select>
+                </div>
+                <button onClick={handleStartDebate} disabled={!debateStance || isDebating} className="w-full bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-colors shadow-lg mt-2">
+                  {isDebating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Enter Arena 🥊"}
+                </button>
+
+                {/* 🔴 AI Response Box */}
+                {debateResponse && (
+                  <div className="mt-6 p-5 bg-[#171717] border border-rose-500/30 rounded-xl">
+                    <span className="text-xs font-bold text-rose-500 uppercase tracking-wider mb-2 block">{aiPersona} Strikes Back:</span>
+                    <p className="text-gray-200 text-sm leading-relaxed">{debateResponse}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* 🏆 TAB 4: BATTLE MODE */}
           {activeTab === "battle" && (
-            <div className="bg-[#291a0b]/40 border border-amber-500/20 rounded-3xl p-10 text-center animate-in fade-in h-[500px] flex flex-col justify-center items-center">
-              <Trophy className="w-20 h-20 text-amber-500 mb-6 animate-bounce" />
+            <div className="bg-[#291a0b]/40 border border-amber-500/20 rounded-3xl p-10 text-center animate-in fade-in h-[500px] flex flex-col justify-center items-center relative overflow-hidden">
+              {/* Dynamic Background Pulse */}
+              {isSearching && <div className="absolute inset-0 bg-amber-500/5 animate-pulse rounded-3xl"></div>}
+              
+              <Trophy className={`w-20 h-20 text-amber-500 mb-6 ${isSearching ? 'animate-spin' : 'animate-bounce'}`} />
               <h3 className="text-3xl font-bold text-white mb-3">1 VS 1 Battle Mode</h3>
-              <p className="text-gray-400 mb-8 max-w-md">Compete against your batchmates in real-time MCQ battles based on your current syllabus.</p>
-              <button className="bg-amber-500 hover:bg-amber-600 text-black font-black uppercase tracking-widest px-10 py-5 rounded-2xl transition-all shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:scale-105">Find Opponent 🔍</button>
+              <p className="text-gray-400 mb-8 max-w-md relative z-10">Compete against your batchmates in real-time MCQ battles based on your current syllabus.</p>
+              
+              <button 
+                onClick={handleFindOpponent}
+                disabled={isSearching}
+                className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-700/50 text-black disabled:text-gray-300 font-black uppercase tracking-widest px-10 py-5 rounded-2xl transition-all shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:scale-105 disabled:hover:scale-100 flex items-center gap-3 relative z-10"
+              >
+                {isSearching ? (
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Searching Server...</>
+                ) : (
+                  "Find Opponent 🔍"
+                )}
+              </button>
             </div>
           )}
 
@@ -205,13 +351,9 @@ export default function InteractiveStudyHubPage() {
             <div className="flex items-start gap-4">
               <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Atlas&backgroundColor=6366f1" alt="Atlas" className="w-16 h-16 rounded-2xl bg-[#0a0a0a] border border-white/10 shadow-inner" />
               <div className="bg-[#0a0a0a] border border-white/10 p-4 rounded-2xl rounded-tl-none relative flex-1">
-                {xp < 100 ? (
-                  <p className="text-[13px] text-gray-300 italic">"Zero XP? Are you studying or just staring at the screen? Start swiping those flashcards!"</p>
-                ) : streak > 2 ? (
-                  <p className="text-[13px] text-emerald-300 italic font-medium">"Woah, {streak} streak! You are officially a geopolitical threat right now! Keep pushing!"</p>
-                ) : (
-                  <p className="text-[13px] text-gray-300 italic">"Okay, {xp} XP is a decent start. But your retention rate won't fix itself. Next card!"</p>
-                )}
+                <p className={`text-[13px] italic font-medium ${streak > 2 ? 'text-emerald-300' : 'text-emerald-300'}`}>
+                  "{getAtlasQuote()}"
+                </p>
               </div>
             </div>
           </div>
@@ -222,20 +364,35 @@ export default function InteractiveStudyHubPage() {
               <Trophy className="w-4 h-4 text-amber-400" /> Live Leaderboard
             </h3>
             <div className="space-y-4">
-              {[
-                { name: "Fahim (IR 2.1)", xp: 3450, medal: "🥇" },
-                { name: "Samia (IR 3.1)", xp: 2890, medal: "🥈" },
-                { name: "Noman (IR 1.2)", xp: 2150, medal: "🥉" },
-                { name: "You", xp: xp, medal: "4️⃣" },
-              ].map((user, i) => (
-                <div key={i} className={`flex items-center justify-between p-3 rounded-xl transition-all ${user.name === "You" ? "bg-amber-500/10 border border-amber-500/20" : "hover:bg-white/5"}`}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{user.medal}</span>
-                    <span className={`font-semibold text-[14px] ${user.name === "You" ? "text-amber-400" : "text-gray-300"}`}>{user.name}</span>
-                  </div>
-                  <span className="font-bold text-gray-400 text-sm">{user.xp} XP</span>
+              
+              {/* 🔴 DYNAMIC LEADERBOARD MAPPING */}
+              {leaderboard.length > 0 ? (
+                leaderboard.map((user, i) => {
+                  const medals = ["🥇", "🥈", "🥉"];
+                  const medal = i < 3 ? medals[i] : "🏅";
+                  return (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-xl transition-all hover:bg-white/5">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl">{medal}</span>
+                        <span className="font-semibold text-[14px] text-gray-300 capitalize">{user.name || "Scholar"}</span>
+                      </div>
+                      <span className="font-bold text-gray-400 text-sm">{user.xp} XP</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center text-gray-500 py-4 text-sm">No leaderboard data yet.</div>
+              )}
+
+              {/* 🔴 CURRENT USER HIGHLIGHT */}
+              <div className="flex items-center justify-between p-3 rounded-xl transition-all bg-amber-500/10 border border-amber-500/20 mt-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">✨</span>
+                  <span className="font-semibold text-[14px] text-amber-400">You</span>
                 </div>
-              ))}
+                <span className="font-bold text-gray-400 text-sm">{xp} XP</span>
+              </div>
+
             </div>
           </div>
 

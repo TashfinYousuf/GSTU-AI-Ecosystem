@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, workspaces, chat, knowledge, documents, admin, academic, mentor, payment, billing, powerups, tools, department
+from app.api import auth, workspaces, chat, study, knowledge, documents, admin, academic, faculty, scholar, mentor, payment, billing, powerups, tools, logger, department
 
 
 # Initialize FastAPI App
@@ -13,7 +13,7 @@ app = FastAPI(
 # CORS Middleware (Allows Next.js and Flutter to connect)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Next.js এর পোর্ট অ্যালাউ করা হলো
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], # Next.js এর পোর্ট অ্যালাউ করা হলো
     # allow_origins=["*"], # প্রোডাকশনে এখানে Next.js এর ডোমেইন দেব
     allow_credentials=True,
     allow_methods=["*"],
@@ -28,11 +28,15 @@ app.include_router(chat.router, prefix="/api/v1/chat", tags=["AI Engine"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents & RAG"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin & Analytics"])
 app.include_router(mentor.router, prefix="/api/v1/mentor", tags=["Agentic Mentor"])
-app.include_router(payment.router, prefix="/api/v1/billing", tags=["Enterprise Billing"])
+app.include_router(payment.router, prefix="/api/v1/payment", tags=["Enterprise Payment"])
 app.include_router(powerups.router, prefix="/api/v1/powerups", tags=["Power-Ups & Gen-Z Tools"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["Enterprise Billing"])
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["Gen-Z Tools & Vision"])
 app.include_router(department.router, prefix="/api/v1/department", tags=["Department Hub"])
+app.include_router(study.router, prefix="/api/v1/study", tags=["Interactive Study Hub"])
+app.include_router(scholar.router, prefix="/api/v1/scholar", tags=["Scholar Hub"])
+app.include_router(faculty.router, prefix="/api/v1/faculty", tags=["Faculty Node"])
+app.include_router(logger.router, prefix="/api/v1/logger", tags=["Study Logger"])
 
 @app.get("/")
 async def root():

@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+import google as genai
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel

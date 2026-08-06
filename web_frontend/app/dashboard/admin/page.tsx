@@ -1,34 +1,47 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, CheckCircle, Clock, Brain } from "lucide-react";
+import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
+import { fetchAPI } from "../../utils/api";
 
 export default function FacultyNodePage() {
   const [activeTab, setActiveTab] = useState("analytics");
-  const [stats, setStats] = useState<any>(null);
   const [tickets, setTickets] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🔴 Initialize with ZERO
+  const [stats, setStats] = useState({
+    total_users: 0,
+    pro_users: 0,
+    free_users: 0,
+    active_models: 10,
+    est_revenue_bdt: 0,
+    trending_topics: [],
+    dept_users: []
+  });
+
+
   useEffect(() => {
-    // API থেকে ডেটা ফেচ করার লজিক (আপাতত মক ডেটা সেট করছি ডেমোর জন্য)
-    setTimeout(() => {
-      setStats({
-        total_users: 1250, pro_users: 340, free_users: 910, active_models: 10, est_revenue_bdt: 33660,
-        trending_topics: [{ topic: "Neorealism vs Liberalism", count: 450 }, { topic: "South Asian Geopolitics", count: 320 }],
-        dept_users: [{ dept: "IR", count: 850 }, { dept: "Economics", count: 250 }]
-      });
-      setTickets([
-        { id: "t1", user_email: "fahim.ir@gstu.edu", query: "bKash payment failed, TrxID: 8X9Y...", status: "Open", time: "10 mins ago" },
-        { id: "t2", user_email: "samia@gstu.edu", query: "Scholar Hub not generating gaps.", status: "Open", time: "1 hour ago" }
-      ]);
-      setNotices([
-        { id: "n1", title: "Makeup Class for IR-202", content: "Tomorrow at 10 AM in Room 302.", submitted_by: "CR (IR 2.1)" }
-      ]);
-      setIsLoading(false);
-    }, 1000);
-  }, []);
+    async function loadAdminData() {
+      setIsLoading(true);
+      try {
+        if (activeTab === "analytics") {
+          const res = await fetchAPI("/admin/analytics");
+          if (res.data) setStats(res.data);
+        } else if (activeTab === "support") {
+          const res = await fetchAPI("/admin/tickets");
+          if (res.data) setTickets(res.data);
+        }
+      } catch (error) {
+        console.error("Failed to load admin data");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadAdminData();
+  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
@@ -114,7 +127,7 @@ export default function FacultyNodePage() {
             </div>
           )}
 
-          {/* 📚 TAB 2: DYNAMIC KNOWLEDGE BASE MANAGER (Your Screenshot) */}
+          {/* 📚 TAB 2: DYNAMIC KNOWLEDGE BASE MANAGER */}
           {activeTab === "knowledge-base" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
               <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
@@ -154,60 +167,91 @@ export default function FacultyNodePage() {
                 </div>
               </div>
 
-              <button className="w-full bg-[#10b981] hover:bg-[#059669] text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+              <button className="w-full bg-[#059669] hover:bg-[#10b981] text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
                 <Rocket className="w-5 h-5" /> Process & Memorize (Train AI)
               </button>
             </div>
           )}
 
-          {/* 🎧 Tab 3: Support Tickets */}
-          {activeTab === "tickets" && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-4">
-              {tickets.length === 0 ? (
-                <div className="text-center py-10 text-gray-500">No pending support tickets. Great job!</div>
-              ) : (
-                tickets.map((t) => (
-                  <div key={t.id} className="bg-[#1e1e1e] border border-rose-500/20 p-6 rounded-2xl shadow-lg relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-rose-500"></div>
-                    <div className="flex justify-between items-start mb-4">
+          {/* 🎧 TAB: SUPPORT DESK */}
+          {activeTab === "support" && (
+            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-[400px]">
+              <h3 className="text-xl font-bold text-white mb-6">Pending Support Tickets</h3>
+              
+              {isLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-rose-500 animate-spin" /></div>
+              ) : Array.isArray(tickets) && tickets.length > 0 ? (
+                <div className="space-y-4">
+                  {tickets.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
                       <div>
-                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-1"><Clock className="w-3.5 h-3.5"/> {t.time}</span>
-                        <h4 className="text-gray-200 font-medium text-[15px]">{t.user_email}</h4>
+                        <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">{t.category || "Issue"}</span>
+                        <p className="text-gray-300 font-medium">{t.query}</p>
                       </div>
-                      <span className="bg-rose-500/10 text-rose-400 text-[10px] font-bold uppercase px-2 py-1 rounded-full border border-rose-500/20">Open Ticket</span>
+                      <button className="px-4 py-2 bg-white/10 hover:bg-emerald-600 hover:text-white text-gray-300 rounded-lg text-sm font-bold transition-colors">Resolve</button>
                     </div>
-                    <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5 text-gray-300 text-sm mb-4 leading-relaxed">
-                      {t.query}
-                    </div>
-                    <button className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl transition-all text-sm">
-                      <CheckCircle className="w-4 h-4" /> Mark as Resolved & Close
-                    </button>
-                  </div>
-                ))
+                  ))}
+                </div>
+              ) : (
+                // 🔴 Safe Empty State
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50 mt-4">
+                  <MessageSquare className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
+                  <h3 className="text-xl font-bold text-gray-300 mb-2">No Active Tickets</h3>
+                  <p className="text-sm text-gray-500 text-center max-w-sm">The support desk is currently clear. Any queries or issues raised by students will appear here.</p>
+                </div>
               )}
             </div>
           )}
 
-          {/* 🔔 Tab 4: Notice Approvals */}
+          {/* 🔔 TAB 4: PUBLISH NOTICES, ROUTINES & RESULTS */}
           {activeTab === "notices" && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-4">
-               {notices.length === 0 ? (
-                <div className="text-center py-10 text-gray-500">No drafted notices pending approval.</div>
-              ) : (
-                notices.map((n) => (
-                  <div key={n.id} className="bg-[#1e1e1e] border border-amber-500/20 p-6 rounded-2xl shadow-lg relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
-                    <h4 className="text-lg font-bold text-white mb-2">{n.title}</h4>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Drafted By: <span className="text-amber-400">{n.submitted_by}</span></p>
-                    <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5 text-gray-300 text-sm mb-4 leading-relaxed">
-                      {n.content}
-                    </div>
-                    <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2.5 rounded-xl transition-all text-sm">
-                      <Bell className="w-4 h-4" /> Approve & Publish Globally
-                    </button>
+            <div className="bg-[#171923] w-full rounded-2xl shadow-2xl border border-amber-500/30 p-8 animate-in fade-in">
+              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
+                📢 Publish Department Update
+              </h3>
+              
+              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl mb-6">
+                <p className="text-sm text-amber-200/80 leading-relaxed">
+                  Upload official notices, class routines, or semester results here. This will instantly reflect on the student's Department Hub.
+                </p>
+              </div>
+
+              <div className="space-y-5 mb-6">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Title / Subject:</label>
+                  <input type="text" placeholder="e.g., Final Exam Routine - Semester 2.1" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2">Category:</label>
+                    <select className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm">
+                      <option>Official Notice</option>
+                      <option>Class Routine</option>
+                      <option>Semester Result</option>
+                      <option>Event/Seminar</option>
+                    </select>
                   </div>
-                ))
-              )}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2">Publish Date:</label>
+                    <input type="date" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Drag & Drop Area for PDF */}
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-gray-400 mb-2">Attach Document (Optional but recommended)</label>
+                <div className="border-2 border-dashed border-white/10 rounded-xl p-8 flex flex-col items-center justify-center bg-[#0f172a] hover:bg-[#1e293b] transition-colors cursor-pointer group">
+                  <button className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                    <UploadCloud className="w-5 h-5" /> Attach PDF/Image
+                  </button>
+                </div>
+              </div>
+
+              <button className="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+                <Bell className="w-5 h-5" /> Publish to Department Hub
+              </button>
             </div>
           )}
 

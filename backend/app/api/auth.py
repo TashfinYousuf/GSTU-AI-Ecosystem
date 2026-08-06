@@ -6,7 +6,7 @@ from app.models.user import User, Workspace
 from app.schemas.user import UserResponse
 from app.core.security import get_current_user
 
-router = APIRouter(tags=["Authentication"])
+router = APIRouter()
 
 class SyncUserResponse(BaseModel):
     message: str

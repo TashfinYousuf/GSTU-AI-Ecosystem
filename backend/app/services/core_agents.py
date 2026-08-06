@@ -13,11 +13,15 @@ from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.services.analytics_engine import generate_progress_report
 from app.services.memory_db import save_study_plan
 
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
+
+router = APIRouter()
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -417,10 +421,20 @@ def generate_genz_features(topic: str, feature_type: str, extra_data: dict = Non
         response = llm.invoke(messages)
         content = response.content.strip()
         
-        # Parse JSON for specific features
+        # 🔴 Bulletproof JSON Extractor
         if feature_type in ["flashcards", "predictor", "roast", "judge"]:
-            clean_json_str = content.replace("```json", "").replace("```", "").strip()
-            return {"status": "success", "data": json.loads(clean_json_str)}
+            start_idx = content.find('{')
+            end_idx = content.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1:
+                clean_json_str = content[start_idx:end_idx+1]
+                try:
+                    parsed_data = json.loads(clean_json_str)
+                    return {"status": "success", "data": parsed_data}
+                except json.JSONDecodeError as e:
+                    return {"status": "error", "message": f"JSON Decode Error: {str(e)}"}
+            else:
+                return {"status": "error", "message": "AI did not return a valid JSON object."}
         else:
             return {"status": "success", "data": content}
 
@@ -579,3 +593,19 @@ def get_llm_engine(model_name: str):
             model_name="meta-llama/llama-4-scout-17b-16e-instruct",
             temperature=0.3
         )
+
+
+class GenZFeatureRequest(BaseModel):
+    topic: str
+    feature_type: str
+    extra_data: Optional[dict] = None
+
+@router.post("/genz-features")
+async def api_generate_genz_features(req: GenZFeatureRequest):
+    """স্টাডি হাবের ফ্ল্যাশকার্ড, ডিবেট এবং প্রেডিক্টরের জন্য API এন্ডপয়েন্ট"""
+    result = generate_genz_features(req.topic, req.feature_type, req.extra_data)
+    
+    if result["status"] == "error":
+        raise HTTPException(status_code=500, detail=result["message"])
+        
+    return result

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Brain, Target, Search, BookOpen, Presentation, CheckCircle, XCircle, TrendingUp } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
+import { fetchAPI } from "../../utils/api";
 
 export default function ScholarHubPage() {
   const [activeTab, setActiveTab] = useState("research");
@@ -14,23 +15,23 @@ export default function ScholarHubPage() {
   const handleAction = async (endpoint: string, payload: any) => {
     setIsLoading(true);
     setResult(null);
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
     
-    if (session?.access_token) {
-      try {
-        const res = await fetch(`http://localhost:8000/api/v1/powerups/${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) setResult((await res.json()).data);
-        else setResult({ error: "Failed to process request." });
-      } catch (error) {
-        setResult({ error: "Network error." });
-      } finally {
-        setIsLoading(false);
+    try {
+      // 🔴 Using our global fetchAPI utility
+      const res = await fetchAPI(`/powerups/${endpoint}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      
+      if (res && res.data) {
+        setResult(res.data);
+      } else {
+        setResult({ error: "Failed to process request." });
       }
+    } catch (error) {
+      setResult({ error: "Network error. Please try again." });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -52,9 +53,6 @@ export default function ScholarHubPage() {
         </button>
         <button onClick={() => { setActiveTab("review"); setResult(null); }} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "review" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-300 hover:text-gray-300"}`}>
           <div className="flex items-center gap-2"><Presentation className="w-4 h-4"/> Critical Peer Review</div>
-        </button>
-        <button onClick={() => { setActiveTab("predict"); setResult(null); }} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "predict" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-300 hover:text-gray-300"}`}>
-          <div className="flex items-center gap-2"><TrendingUp className="w-4 h-4"/> Predictive Analytics</div>
         </button>
       </div>
 
@@ -90,17 +88,6 @@ export default function ScholarHubPage() {
             </div>
             <button onClick={() => handleAction("roast", { question: input1, answer: input2 })} disabled={!input1 || !input2 || isLoading} className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3.5 rounded-xl transition-all">
               <CheckCircle className="w-5 h-5" /> Submit for Critical Review
-            </button>
-          </div>
-        )}
-
-        {/* Predict Tab */}
-        {activeTab === "predict" && (
-          <div className="bg-[#1e1e1e] border border-white/5 p-6 md:p-8 rounded-2xl shadow-xl">
-            <label className="block text-sm font-medium text-gray-400 mb-3">Course Code (For Vector Search)</label>
-            <input type="text" value={input1} onChange={(e) => setInput1(e.target.value)} placeholder="e.g., IR-210" className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all mb-6 text-[15px]" />
-            <button onClick={() => handleAction("predict", { workspace_id: "global", course_code: input1 })} disabled={!input1 || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-medium py-3.5 rounded-xl transition-all">
-              <TrendingUp className="w-5 h-5" /> Run RAG Predictive Model
             </button>
           </div>
         )}

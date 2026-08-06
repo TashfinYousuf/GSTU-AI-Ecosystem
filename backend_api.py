@@ -51,11 +51,9 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Flutter অ্যাপ থেকে আসা API রিকোয়েস্টের টোকেন ভেরিফাই করবে।"""
     token = credentials.credentials
     
-    # 🔴 প্রোডাকশনে যখন Supabase Auth অ্যাড করবেন, তখন নিচের কমেন্টগুলো উঠিয়ে দেবেন:
-    # user_response = supabase.auth.get_user(token)
-    # if not user_response.user:
-    #     raise HTTPException(status_code=401, detail="Invalid or Expired Token")
-    
+    user_response = supabase.auth.get_user(token)
+    if not user_response.user:
+        raise HTTPException(status_code=401, detail="Invalid or Expired Token")
     return token
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
