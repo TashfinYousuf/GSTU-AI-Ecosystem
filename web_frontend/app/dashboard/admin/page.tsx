@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle } from "lucide-react";
+import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Sparkles, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
 import { fetchAPI } from "../../utils/api";
 
@@ -22,6 +22,25 @@ export default function FacultyNodePage() {
     dept_users: []
   });
 
+  const [aiDrafts, setAiDrafts] = useState<Record<string, string>>({});
+  const [isDrafting, setIsDrafting] = useState<string | null>(null);
+
+  const handleGenerateDraft = async (ticketId: string, query: string, dept: string) => {
+    setIsDrafting(ticketId);
+    try {
+      const res = await fetchAPI("/admin/support/auto-reply", {
+        method: "POST",
+        body: JSON.stringify({ ticket_query: query, student_department: dept })
+      });
+      if (res.status === "success") {
+        setAiDrafts(prev => ({ ...prev, [ticketId]: res.reply }));
+      }
+    } catch (e) {
+      console.error("AI Draft failed", e);
+    } finally {
+      setIsDrafting(null);
+    }
+  };
 
   useEffect(() => {
     async function loadAdminData() {
@@ -93,7 +112,7 @@ export default function FacultyNodePage() {
                   <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Brain className="w-4 h-4 text-purple-400"/> Active Engines</div>
                   <div className="text-3xl font-bold text-white">{stats.active_models}</div>
                 </div>
-                <div className="bg-gradient-to-br from-amber-500/10 to-transparent border border-amber-500/20 p-6 rounded-2xl shadow-lg">
+                <div className="bg-linear-to-br from-amber-500/10 to-transparent border border-amber-500/20 p-6 rounded-2xl shadow-lg">
                   <div className="text-amber-500/70 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Banknote className="w-4 h-4 text-amber-400"/> Est. Revenue</div>
                   <div className="text-3xl font-bold text-amber-400">৳ {stats.est_revenue_bdt}</div>
                 </div>
@@ -175,29 +194,61 @@ export default function FacultyNodePage() {
 
           {/* 🎧 TAB: SUPPORT DESK */}
           {activeTab === "support" && (
-            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-[400px]">
-              <h3 className="text-xl font-bold text-white mb-6">Pending Support Tickets</h3>
+            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-100">
+              <h3 className="text-xl font-bold text-white mb-6">Support Desk Operations</h3>
               
               {isLoading ? (
-                <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-rose-500 animate-spin" /></div>
+                <div className="flex justify-center py-10">
+                  <Loader2 className="w-8 h-8 text-rose-500 animate-spin" />
+                </div>
               ) : Array.isArray(tickets) && tickets.length > 0 ? (
                 <div className="space-y-4">
                   {tickets.map((t, i) => (
-                    <div key={i} className="flex items-center justify-between p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
+                  <div key={i} className="flex flex-col p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl mb-4">
+                    <div className="flex items-center justify-between mb-4">
                       <div>
-                        <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">{t.category || "Issue"}</span>
+                        <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">
+                          {t.department || "General"} Issue
+                        </span>
                         <p className="text-gray-300 font-medium">{t.query}</p>
                       </div>
-                      <button className="px-4 py-2 bg-white/10 hover:bg-emerald-600 hover:text-white text-gray-300 rounded-lg text-sm font-bold transition-colors">Resolve</button>
+                      <button 
+                        onClick={() => handleGenerateDraft(t.id, t.query, t.department)}
+                        disabled={isDrafting === t.id}
+                        className="px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+                      >
+                        {isDrafting === t.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        AI Auto-Reply
+                      </button>
                     </div>
-                  ))}
+
+                    {/* AI Draft Box */}
+                    {aiDrafts[t.id] && (
+                      <div className="mt-2 bg-[#171717] p-4 rounded-xl border border-indigo-500/20 animate-in fade-in">
+                        <label className="text-[11px] font-bold text-indigo-400 uppercase mb-2 block">AI Draft (Edit before sending)</label>
+                        <textarea 
+                          value={aiDrafts[t.id]} 
+                          onChange={(e) => setAiDrafts(prev => ({...prev, [t.id]: e.target.value}))}
+                          className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-3 text-sm text-gray-300 focus:border-indigo-500 outline-none min-h-25"
+                        />
+                        <div className="flex justify-end mt-3">
+                          <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition-colors">
+                            Send Resolution
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
                 </div>
               ) : (
-                // 🔴 Safe Empty State
-                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50 mt-4">
-                  <MessageSquare className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
-                  <h3 className="text-xl font-bold text-gray-300 mb-2">No Active Tickets</h3>
-                  <p className="text-sm text-gray-500 text-center max-w-sm">The support desk is currently clear. Any queries or issues raised by students will appear here.</p>
+                // Exact requested empty state UI
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50 mt-4 text-center px-4">
+                  <MessageSquare className="w-16 h-16 mb-4 opacity-30 text-indigo-400" />
+                  <h3 className="text-xl font-bold text-gray-200 mb-2">No Support Ticket Found</h3>
+                  <p className="text-sm text-gray-400 max-w-md leading-relaxed">
+                    There are currently no active support tickets from the department administration. Please check back later.
+                  </p>
                 </div>
               )}
             </div>

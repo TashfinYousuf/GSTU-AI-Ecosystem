@@ -101,7 +101,7 @@ export default function DailyLogger() {
         <button
           type="submit"
           disabled={loading}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="bg-linear-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {loading ? 'Saving to Vault...' : "Log Today's Progress 🚀"}
         </button>

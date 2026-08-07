@@ -360,7 +360,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
           {messages.map((msg) => (
             <div key={msg.id} className="flex flex-col w-full group">
               <span className="text-[13px] font-semibold text-gray-400 mb-2 ml-1">{msg.role === "user" ? "You" : "GSTU Assistant"}</span>
-              <div className={`text-[16px] leading-[1.75] tracking-wide break-words ${msg.role === "user" ? "bg-[#2f2f2f] px-5 py-3.5 rounded-3xl w-fit max-w-[85%] text-gray-100 shadow-sm" : "text-gray-200 px-2 w-full"}`}>
+              <div className={`text-[16px] leading-[1.75] tracking-wide wrap-break-word ${msg.role === "user" ? "bg-[#2f2f2f] px-5 py-3.5 rounded-3xl w-fit max-w-[85%] text-gray-100 shadow-sm" : "text-gray-200 px-2 w-full"}`}>
                 {msg.role === "user" ? msg.content : (
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                     p: ({ node, ...props }) => <p className="mb-4 last:mb-0" {...props} />,
@@ -392,7 +392,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
 
       <div className="shrink-0 w-full bg-[#212121] pt-2 pb-6 px-4 z-20">
         <div className="max-w-3xl mx-auto w-full">
-          <form onSubmit={handleSendMessage} className="flex items-end bg-[#2f2f2f] rounded-[24px] border border-white/10 shadow-lg focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all p-1.5">
+          <form onSubmit={handleSendMessage} className="flex items-end bg-[#2f2f2f] rounded-3xl border border-white/10 shadow-lg focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all p-1.5">
 
             <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
 
@@ -411,7 +411,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e as any); } }}
               placeholder={isTyping ? "Generating response..." : "Message GSTU Assistant..."}
-              className={`flex-1 bg-transparent py-2.5 px-3 text-gray-100 placeholder-gray-500 focus:outline-none resize-none max-h-40 min-h-[44px] text-[15.5px] leading-relaxed self-center ${isTyping ? "cursor-not-allowed" : ""}`}
+              className={`flex-1 bg-transparent py-2.5 px-3 text-gray-100 placeholder-gray-500 focus:outline-none resize-none max-h-40 min-h-11 text-[15.5px] leading-relaxed self-center ${isTyping ? "cursor-not-allowed" : ""}`}
               rows={1}
             />
 
@@ -422,12 +422,12 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-[12px] font-bold text-gray-200 transition-colors shadow-inner"
               >
                 {selectedModel.icon}
-                <span className="max-w-[120px] truncate">{selectedModel.name}</span>
+                <span className="max-w-30 truncate">{selectedModel.name}</span>
                 <ChevronDown className="w-3.5 h-3.5 opacity-70" />
               </button>
 
               {isModelMenuOpen && (
-                <div className="absolute right-12 bottom-full mb-3 w-72 bg-[#171717] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[350px]">
+                <div className="absolute right-12 bottom-full mb-3 w-72 bg-[#171717] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-87.5">
                   <div className="px-4 py-3 border-b border-white/5 bg-[#121212]">
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Select AI Engine</span>
                   </div>

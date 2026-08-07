@@ -10,9 +10,15 @@ from app.core.security import get_current_user
 from app.core.vector_store import get_workspace_vectorstore
 from app.core.database import get_db
 from app.models.user import Message
+from supabase import create_client, Client
 
 # 🔴 Force .env to load API Keys
 load_dotenv(override=True)
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 gemini_key = os.getenv("GEMINI_API_KEY")
 
 router = APIRouter(tags=["Academic Tools"])
@@ -192,8 +198,14 @@ def get_student_analytics(user_id: str, db: Session = Depends(get_db), current_u
         
     try:
         # 🔴 SQLAlchemy Query: Fetch actual message count for this user
-        total_queries = db.query(Message).filter(Message.user_id == user_id).count()
+        # total_queries = db.query(Message).filter(Message.user_id == user_id).count()
         
+        # ✅ Supabase Code (Get workspaces first, then count messages):
+        workspaces_res = supabase.table("workspaces").select("id").eq("user_id", user_id).execute()
+        workspace_ids = [w["id"] for w in (workspaces_res.data or [])]
+
+        total_queries = supabase.table("messages").select("*", count="exact").in_("workspace_id", workspace_ids).execute()
+
         # 🔴 Dynamic Calculation based on real usage
         hours_saved = round((total_queries * 15) / 60, 1)
         retention = min(15 + (total_queries * 2), 85)

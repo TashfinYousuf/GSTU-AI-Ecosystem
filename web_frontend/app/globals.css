@@ -24,3 +24,55 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+
+/* Add this to your globals.css. This defines the theme mechanism the
+   Settings toggle now controls via document.documentElement.setAttribute('data-theme', ...).
+
+   IMPORTANT — read this before expecting the whole app to repaint:
+   Right now, almost every component in this app uses hardcoded hex colors
+   directly in className, e.g. `bg-[#212121]`, `text-gray-400`,
+   `border-white/10`. Those are NOT connected to these variables and will
+   NOT change when the theme toggle fires. The toggle itself works and
+   persists correctly (check localStorage + the data-theme attribute on
+   <html> in devtools) — but making the *visual* app actually go light
+   requires migrating components' classNames to reference these variables
+   instead of literal hex values, one file at a time.
+
+   Suggested incremental approach:
+   1. Start with dashboard-layout.tsx's outermost containers
+      (replace `bg-[#212121]` with `bg-[var(--surface-base)]`, etc.)
+   2. Move to the workspace chat page
+   3. Work outward from there
+
+   This file gives you the variable set to migrate onto. */
+
+:root,
+[data-theme="dark"] {
+  --surface-base: #212121;
+  --surface-raised: #171717;
+  --surface-sunken: #121212;
+  --surface-card: #1e1e1e;
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+}
+
+[data-theme="light"] {
+  --surface-base: #ffffff;
+  --surface-raised: #f7f7f8;
+  --surface-sunken: #eeeeef;
+  --surface-card: #ffffff;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.12);
+  --text-primary: #1a1a1a;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+}
+
+/* Smooth transition when the theme actually does change something */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}

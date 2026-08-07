@@ -1,161 +1,394 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShieldCheck, Users, Ticket, Database, FileSignature, Loader2, CheckCircle } from "lucide-react";
+import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle, FileCheck2 } from "lucide-react";
+import { createClient } from "../../utils/supabase/client";
 import { fetchAPI } from "../../utils/api";
 
 export default function FacultyNodePage() {
-  const [activeTab, setActiveTab] = useState("overview"); // overview, assessment, support
-  
-  // 🔴 Dynamic States
-  const [stats, setStats] = useState({ active_students: 0, open_tickets: 0, knowledge_base_size: 0 });
+  const [activeTab, setActiveTab] = useState("analytics");
   const [tickets, setTickets] = useState<any[]>([]);
-  const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [notices, setNotices] = useState<any[]>([]);
+  const [kbDocs, setKbDocs] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Assessment States
-  const [topic, setTopic] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [assessment, setAssessment] = useState<any>(null);
+  const [stats, setStats] = useState({
+    total_users: 0,
+    pro_users: 0,
+    free_users: 0,
+    active_models: 10,
+    est_revenue_bdt: 0,
+    trending_topics: [] as any[],
+    dept_users: [] as any[]
+  });
 
-  // Fetch Stats & Tickets
+  // 🔴 NEW: knowledge base upload form state — previously this form had no
+  // state at all, so "Process & Memorize" had nothing to submit.
+  const [kbFile, setKbFile] = useState<File | null>(null);
+  const [kbCourseCode, setKbCourseCode] = useState("");
+  const [kbDocType, setKbDocType] = useState("Lecture Notes");
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
   useEffect(() => {
-    async function loadFacultyData() {
-      if (activeTab === "overview") {
-        setIsLoadingStats(true);
-        try {
-          const res = await fetchAPI("/faculty/overview");
+    async function loadAdminData() {
+      setIsLoading(true);
+      try {
+        if (activeTab === "analytics") {
+          const res = await fetchAPI("/admin/analytics");
           if (res.data) setStats(res.data);
-        } catch (e) {} finally { setIsLoadingStats(false); }
-      } else if (activeTab === "support") {
-        try {
-          const res = await fetchAPI("/faculty/tickets");
+        } else if (activeTab === "support") {
+          const res = await fetchAPI("/admin/tickets");
           if (res.data) setTickets(res.data);
-        } catch (e) {}
+        } else if (activeTab === "knowledge-base") {
+          const res = await fetchAPI("/admin/knowledge-base");
+          if (res.data) setKbDocs(res.data);
+        }
+      } catch (error) {
+        console.error("Failed to load admin data", error);
+      } finally {
+        setIsLoading(false);
       }
     }
-    loadFacultyData();
+    loadAdminData();
   }, [activeTab]);
 
-  const handleGenerateExam = async () => {
-    setIsGenerating(true); setAssessment(null);
+  const handleKbFileSelect = (file: File | null) => {
+    if (!file) return;
+    const validTypes = ["application/pdf", "text/plain"];
+    if (!validTypes.includes(file.type)) {
+      alert("Only PDF or TXT files are supported.");
+      return;
+    }
+    setKbFile(file);
+  };
+
+  const handleKbUpload = async () => {
+    if (!kbFile || !kbCourseCode.trim()) {
+      alert("Please provide a course code and select a file.");
+      return;
+    }
+
+    setIsUploading(true);
     try {
-      const res = await fetchAPI("/faculty/assessment", { method: "POST", body: JSON.stringify({ topic }) });
-      if (res.data) setAssessment(res.data);
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Session expired — please log in again.");
+        setIsUploading(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", kbFile);
+      formData.append("course_code", kbCourseCode.trim());
+      formData.append("doc_type", kbDocType);
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/knowledge-base/upload`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setKbDocs(prev => [data.document, ...prev]);
+        setKbFile(null);
+        setKbCourseCode("");
+        setKbDocType("Lecture Notes");
+      } else {
+        alert(data.detail || "Upload failed. Please try again.");
+      }
     } catch (error) {
-      alert("Failed to generate assessment. Ensure you have Faculty clearance.");
-    } finally { setIsGenerating(false); }
+      console.error("Knowledge base upload failed:", error);
+      alert("Network error during upload.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#121212] overflow-y-auto custom-scrollbar p-8 md:p-12">
-      <div className="max-w-6xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 pt-4">
-        
-        {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <ShieldCheck className="w-8 h-8 text-blue-500" /> Faculty Node
-          </h1>
-          <p className="text-gray-400 mt-2 text-[15px]">Advanced Control Center for Assessment and Department Management.</p>
-        </div>
+    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
 
-        {/* Tabs */}
-        <div className="flex gap-4 border-b border-white/10 mb-8 pb-px">
-          <button onClick={() => setActiveTab("overview")} className={`px-6 py-3 text-sm font-bold transition-all ${activeTab === "overview" ? "text-blue-400 border-b-2 border-blue-400" : "text-gray-500 hover:text-gray-300"}`}>📊 Live Overview</button>
-          <button onClick={() => setActiveTab("assessment")} className={`px-6 py-3 text-sm font-bold transition-all ${activeTab === "assessment" ? "text-indigo-400 border-b-2 border-indigo-400" : "text-gray-500 hover:text-gray-300"}`}>📝 Assessment Generator</button>
-          <button onClick={() => setActiveTab("support")} className={`px-6 py-3 text-sm font-bold transition-all ${activeTab === "support" ? "text-rose-400 border-b-2 border-rose-400" : "text-gray-500 hover:text-gray-300"}`}>🎧 Support Desk</button>
-        </div>
-
-        {/* 📊 TAB 1: OVERVIEW */}
-        {activeTab === "overview" && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in">
-            <div className="bg-[#1e1e1e] border border-white/5 p-8 rounded-3xl shadow-xl flex items-center gap-6">
-              <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
-                <Users className="w-8 h-8 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Active Students</p>
-                <h3 className="text-3xl font-black text-white mt-1">{isLoadingStats ? "..." : stats.active_students}</h3>
-              </div>
-            </div>
-            <div className="bg-[#1e1e1e] border border-white/5 p-8 rounded-3xl shadow-xl flex items-center gap-6">
-              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
-                <Ticket className="w-8 h-8 text-rose-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Open Tickets</p>
-                <h3 className="text-3xl font-black text-white mt-1">{isLoadingStats ? "..." : stats.open_tickets}</h3>
-              </div>
-            </div>
-            <div className="bg-[#1e1e1e] border border-white/5 p-8 rounded-3xl shadow-xl flex items-center gap-6">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
-                <Database className="w-8 h-8 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Knowledge Base</p>
-                <h3 className="text-3xl font-black text-white mt-1">{isLoadingStats ? "..." : stats.knowledge_base_size} <span className="text-sm text-gray-500 font-medium">Docs</span></h3>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 📝 TAB 2: ASSESSMENT GENERATOR */}
-        {activeTab === "assessment" && (
-          <div className="bg-white text-black rounded-xl p-10 shadow-2xl animate-in zoom-in-95 font-serif border border-gray-200">
-             <div className="text-center border-b-2 border-black pb-6 mb-6">
-               <h2 className="text-2xl font-black uppercase tracking-widest">Department of International Relations</h2>
-               <h3 className="text-lg font-bold mt-2 text-gray-700">{assessment.assessment_type || "Mock Exam"}</h3>
-               <p className="text-sm text-gray-500 mt-2 font-sans">{assessment.exam_rules || "Time: 3 Hours | Full Marks: 60"}</p>
-             </div>
-
-             <div className="space-y-8">
-                {assessment.questions?.map((q: any, i: number) => (
-                  <div key={i} className="flex gap-4">
-                    <span className="font-bold text-lg">{i + 1}.</span>
-                    <div className="flex-1">
-                      <p className="text-[16px] font-medium leading-relaxed">{q.q}</p>
-                      <div className="mt-3 flex gap-2 font-sans">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${q.difficulty === 'Critical' ? 'bg-red-100 text-red-700' : q.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                          {q.difficulty}
-                        </span>
-                      </div>
-                      {/* Only visible to Faculty */}
-                      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-100 font-sans">
-                        <span className="text-xs font-bold text-blue-600 uppercase">Model Answer / Key Points:</span>
-                        <p className="text-sm text-gray-600 mt-1">{q.model_answer}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-        )}
-
-        {/* 🎧 TAB 3: SUPPORT DESK */}
-        {activeTab === "support" && (
-          <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-[400px]">
-             <h3 className="text-xl font-bold text-white mb-6">Pending Support Tickets</h3>
-             {tickets.length > 0 ? (
-               <div className="space-y-4">
-                 {tickets.map((t, i) => (
-                   <div key={i} className="flex items-center justify-between p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
-                     <div>
-                       <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">{t.category || "Issue"}</span>
-                       <p className="text-gray-300 font-medium">{t.query}</p>
-                     </div>
-                     <button className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-bold transition-colors">Resolve</button>
-                   </div>
-                 ))}
-               </div>
-             ) : (
-               <div className="text-center text-gray-500 py-10">
-                 <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                 <p>All clear! No pending support tickets.</p>
-               </div>
-             )}
-          </div>
-        )}
-
+      <div className="mb-10">
+        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+          <ShieldCheck className="w-8 h-8 text-emerald-500" /> Faculty & Admin Node
+        </h1>
+        <p className="text-gray-400 mt-2 text-[15px]">Enterprise-grade departmental control center, analytics, and operational hub.</p>
       </div>
+
+      <div className="flex gap-2 border-b border-white/10 mb-8 pb-px">
+        <button onClick={() => setActiveTab("analytics")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "analytics" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2"><Activity className="w-4 h-4" /> Live Overview</div>
+        </button>
+        <button onClick={() => setActiveTab("knowledge-base")} className={`px-6 py-3 text-sm font-bold transition-all ${activeTab === "knowledge-base" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500 hover:text-gray-300"}`}>📚 Knowledge Base</button>
+        <button onClick={() => setActiveTab("support")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "support" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2"><HeadphonesIcon className="w-4 h-4" /> Support Desk {tickets.length > 0 && <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{tickets.length}</span>}</div>
+        </button>
+        <button onClick={() => setActiveTab("notices")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "notices" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2"><Bell className="w-4 h-4" /> Notice Approvals</div>
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-emerald-500/50 animate-pulse">
+          <ShieldCheck className="w-12 h-12 mb-4 animate-bounce" />
+          <p>Decrypting Admin Vault...</p>
+        </div>
+      ) : (
+        <div className="max-w-5xl">
+
+          {activeTab === "analytics" && stats && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
+                  <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Total Users</div>
+                  <div className="text-3xl font-bold text-white">{stats.total_users}</div>
+                </div>
+                <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
+                  <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-emerald-400" /> Pro / Free</div>
+                  <div className="text-2xl font-bold text-white mt-1">{stats.pro_users} <span className="text-gray-500 text-lg">/ {stats.free_users}</span></div>
+                </div>
+                <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
+                  <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Brain className="w-4 h-4 text-purple-400" /> Active Engines</div>
+                  <div className="text-3xl font-bold text-white">{stats.active_models}</div>
+                </div>
+                <div className="bg-linear-to-br from-amber-500/10 to-transparent border border-amber-500/20 p-6 rounded-2xl shadow-lg">
+                  <div className="text-amber-500/70 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Banknote className="w-4 h-4 text-amber-400" /> Est. Revenue</div>
+                  <div className="text-3xl font-bold text-amber-400">৳ {stats.est_revenue_bdt}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
+                  <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-rose-400" /> Top Trending Topics</h3>
+                  <div className="space-y-3">
+                    {stats.trending_topics.length > 0 ? stats.trending_topics.map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between items-center bg-[#2a2a2a] px-4 py-3 rounded-xl border border-white/5">
+                        <span className="text-gray-200 text-sm font-medium">{t.topic}</span>
+                        <span className="bg-black/30 text-rose-400 text-xs font-bold px-2 py-1 rounded-md">{t.count} queries</span>
+                      </div>
+                    )) : (
+                      <p className="text-xs text-gray-600 italic px-1">No topic data yet — accumulates from student study logs.</p>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
+                  <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-indigo-400" /> Department Demographics</h3>
+                  <div className="space-y-3">
+                    {stats.dept_users.length > 0 ? stats.dept_users.map((d: any, i: number) => (
+                      <div key={i} className="flex justify-between items-center bg-[#2a2a2a] px-4 py-3 rounded-xl border border-white/5">
+                        <span className="text-gray-200 text-sm font-medium">{d.dept} Department</span>
+                        <span className="bg-black/30 text-indigo-400 text-xs font-bold px-2 py-1 rounded-md">{d.count} users</span>
+                      </div>
+                    )) : (
+                      <p className="text-xs text-gray-600 italic px-1">No department data set on user profiles yet.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "knowledge-base" && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
+              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
+                📤 Upload Departmental Resources
+              </h3>
+
+              <div className="bg-[#1e3a8a]/20 border border-blue-500/20 p-4 rounded-xl mb-6">
+                <p className="text-sm text-blue-200/80 leading-relaxed">
+                  Upload syllabus, lecture notes, or past questions. The AI will automatically chunk, embed, and memorize them securely.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Course Code & Version (Crucial for Version Control):</label>
+                  <input
+                    type="text"
+                    value={kbCourseCode}
+                    onChange={(e) => setKbCourseCode(e.target.value)}
+                    placeholder="e.g., IR-210-v1"
+                    className="w-full bg-[#0b0c10] border border-emerald-500/30 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Document Type:</label>
+                  <select
+                    value={kbDocType}
+                    onChange={(e) => setKbDocType(e.target.value)}
+                    className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                  >
+                    <option>Lecture Notes</option>
+                    <option>Syllabus</option>
+                    <option>Past Questions</option>
+                    <option>Research Paper</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-gray-400 mb-2">Drag & Drop PDFs or TXT files here</label>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    handleKbFileSelect(e.dataTransfer.files?.[0] || null);
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center transition-colors cursor-pointer group ${isDragging ? "border-emerald-500 bg-[#1e293b]" : "border-white/10 bg-[#0f172a] hover:bg-[#1e293b]"}`}
+                  onClick={() => document.getElementById("kb-file-input")?.click()}
+                >
+                  <input
+                    id="kb-file-input"
+                    type="file"
+                    accept=".pdf,.txt"
+                    className="hidden"
+                    onChange={(e) => handleKbFileSelect(e.target.files?.[0] || null)}
+                  />
+                  {kbFile ? (
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <FileCheck2 className="w-6 h-6" />
+                      <span className="text-sm font-medium">{kbFile.name}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <button type="button" className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm pointer-events-none">
+                        <UploadCloud className="w-5 h-5" /> Upload File
+                      </button>
+                      <span className="text-[11px] text-gray-500 mt-4">PDF, TXT — drag & drop or click</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleKbUpload}
+                disabled={isUploading || !kbFile || !kbCourseCode.trim()}
+                className="w-full bg-[#059669] hover:bg-[#10b981] text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Rocket className="w-5 h-5" />}
+                {isUploading ? "Processing..." : "Process & Memorize (Train AI)"}
+              </button>
+
+              {kbDocs.length > 0 && (
+                <div className="mt-8">
+                  <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Recently Uploaded</h4>
+                  <div className="space-y-2">
+                    {kbDocs.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center justify-between bg-[#1e1e1e] border border-white/5 rounded-xl px-4 py-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FileCheck2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm text-gray-200 truncate">{doc.filename}</p>
+                            <p className="text-[11px] text-gray-500">{doc.course_code} · {doc.doc_type}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-gray-500 shrink-0">{doc.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "support" && (
+            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-100">
+              <h3 className="text-xl font-bold text-white mb-6">Pending Support Tickets</h3>
+
+              {Array.isArray(tickets) && tickets.length > 0 ? (
+                <div className="space-y-4">
+                  {tickets.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
+                      <div>
+                        <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">{t.category || "Issue"}</span>
+                        <p className="text-gray-300 font-medium">{t.query}</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await fetchAPI(`/admin/tickets/${t.id}/resolve`, { method: "POST" });
+                            setTickets(prev => prev.filter(x => x.id !== t.id));
+                          } catch (err) { console.error("Resolve failed:", err); }
+                        }}
+                        className="px-4 py-2 bg-white/10 hover:bg-emerald-600 hover:text-white text-gray-300 rounded-lg text-sm font-bold transition-colors"
+                      >
+                        Resolve
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50 mt-4">
+                  <MessageSquare className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
+                  <h3 className="text-xl font-bold text-gray-300 mb-2">No Active Tickets</h3>
+                  <p className="text-sm text-gray-500 text-center max-w-sm">The support desk is currently clear. Any queries or issues raised by students will appear here.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "notices" && (
+            <div className="bg-[#171923] w-full rounded-2xl shadow-2xl border border-amber-500/30 p-8 animate-in fade-in">
+              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
+                📢 Publish Department Update
+              </h3>
+
+              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl mb-6">
+                <p className="text-sm text-amber-200/80 leading-relaxed">
+                  Upload official notices, class routines, or semester results here. This will instantly reflect on the student's Department Hub.
+                </p>
+              </div>
+
+              <div className="space-y-5 mb-6">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Title / Subject:</label>
+                  <input type="text" placeholder="e.g., Final Exam Routine - Semester 2.1" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2">Category:</label>
+                    <select className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm">
+                      <option>Official Notice</option>
+                      <option>Class Routine</option>
+                      <option>Semester Result</option>
+                      <option>Event/Seminar</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-2">Publish Date:</label>
+                    <input type="date" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-gray-400 mb-2">Attach Document (Optional but recommended)</label>
+                <div className="border-2 border-dashed border-white/10 rounded-xl p-8 flex flex-col items-center justify-center bg-[#0f172a] hover:bg-[#1e293b] transition-colors cursor-pointer group">
+                  <button className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                    <UploadCloud className="w-5 h-5" /> Attach PDF/Image
+                  </button>
+                </div>
+              </div>
+
+              <button className="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+                <Bell className="w-5 h-5" /> Publish to Department Hub
+              </button>
+              {/* Notice publishing backend wiring intentionally left out of
+                  scope here — it follows the identical pattern as knowledge
+                  base upload above (multipart form -> /admin/notices/publish
+                  endpoint -> insert into a `notices` table). Say the word if
+                  you want that endpoint + wiring added the same way. */}
+            </div>
+          )}
+
+        </div>
+      )}
     </div>
   );
 }

@@ -59,6 +59,8 @@ class WorkspaceUpdate(BaseModel):
     project_id: Optional[str] = None
     clear_project: Optional[bool] = False
 
+class SupportQuery(BaseModel):
+    message: str
 
 # ---------- PROJECTS ----------
 
@@ -304,11 +306,20 @@ async def get_history(workspace_id: str, current_user: dict = Depends(get_curren
 
 
 # 4. STREAM CHAT + PERSIST BOTH SIDES
-# 🔴 FIX: workspace lookup now scoped to user_id (same IDOR issue as get_history).
-# 🔴 FIX: bare `except Exception` now logs the real error instead of swallowing it silently.
+# 🔴 workspace lookup now scoped to user_id (same IDOR issue as get_history).
+# 🔴 bare `except Exception` now logs the real error instead of swallowing it silently.
 @router.post("/stream")
-async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
+# 🔴 Maximum 50 AI requests per minute per IP to prevent bot attacks
+# @limiter.limit("50/minute") <- You can add this decorator if limiter is configured globally
+async def chat_stream(request: ChatRequest, chat_req: ChatRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
+    role = current_user.get("user_metadata", {}).get("role", "guest").lower()
+
+    # 🔴 GUEST RESTRICTION LOGIC
+    if role == "guest":
+        # Check local DB/Cache for message count here
+        pass
+
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -380,3 +391,56 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 print(f"Failed to save AI msg: {db_err}")
 
     return StreamingResponse(streaming_generator(), media_type="text/plain")
+
+
+@router.post("/ecosystem-support")
+async def ecosystem_support_bot(req: SupportQuery):
+    system_prompt = (
+        "You are 'GSTU Helpdesk', an AI assistant for the GSTU Ecosystem. "
+        "Answer questions about how to use the dashboard, features, or general university inquiries concisely. "
+        "Keep answers precise & short. Be polite and professional. "
+        "Match user query language. If user asks in English, response in English. If user asks in Bangla/Banglish, response in standard Bangla."
+    )
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"{system_prompt}\n\nUSER QUESTION: {req.message}"
+        )
+        return {"status": "success", "reply": response.text}
+    except Exception as e:
+        return {"status": "error", "reply": "Our support agents are currently busy. Please try again later."}
+
+
+# 🔴 GLOBAL SEARCH ENGINE
+@router.get("/search")
+async def global_search(q: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    if not user_id: raise HTTPException(status_code=401)
+    
+    # Avoid empty searches hitting the DB
+    if not q or len(q.strip()) < 2:
+        return {"status": "success", "data": []}
+        
+    try:
+        # Search workspaces (chats) using case-insensitive LIKE (ilike)
+        ws_res = supabase.table("workspaces") \
+            .select("id, name") \
+            .eq("user_id", user_id) \
+            .ilike("name", f"%{q}%") \
+            .limit(5) \
+            .execute()
+            
+        results = []
+        for w in (ws_res.data or []):
+            results.append({
+                "type": "workspace", 
+                "id": w["id"], 
+                "title": w["name"]
+            })
+            
+        # You can expand this later to search projects/tickets based on user role
+        return {"status": "success", "data": results}
+    except Exception as e:
+        print(f"Search API Error: {e}")
+        return {"status": "error", "data": []}
