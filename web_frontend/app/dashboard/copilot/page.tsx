@@ -1,57 +1,84 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles, Clock, Brain, CheckSquare, Bell, Calendar, FileText } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Sparkles, Clock, Brain, CheckSquare, Bell, Calendar, FileText, Target, ChevronDown, RefreshCw } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
+import { fetchAPI } from "../../utils/api";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 export default function AcademicCopilotPage() {
   const [activeTab, setActiveTab] = useState("routine");
   const [inputTopic, setInputTopic] = useState("");
-  const [studyHours, setStudyHours] = useState(4); // Only for Routine
-  const [result, setResult] = useState<string | null>(null);
+  const [studyHours, setStudyHours] = useState(4);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleCopilotAction = async (endpoint: string, payload: any) => {
+  // 🔴 Separate States for different outputs
+  const [result, setResult] = useState<string | null>(null);
+  const [routineData, setRoutineData] = useState<any>(null);
+  const [assessmentData, setAssessmentData] = useState<any>(null);
+
+  // Toggles for Mock Exam
+  const [expandedHints, setExpandedHints] = useState<{ [key: number]: boolean }>({});
+  const [expandedAnswers, setExpandedAnswers] = useState<{ [key: number]: boolean }>({});
+
+  // 🔴 Safe Execution & State Routing
+  const executeTask = async () => {
     setIsLoading(true);
     setResult(null);
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session?.access_token) {
-      try {
-        const res = await fetch(`http://localhost:8000/api/v1/academic/${endpoint}`, {
+    setRoutineData(null);
+    setAssessmentData(null);
+
+    try {
+      if (activeTab === "routine") {
+        const res = await fetchAPI("/study/routine", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ weak_topics: [inputTopic], strong_topics: [], target_cgpa: 3.8 })
         });
-        if (res.ok) {
-          const data = await res.json();
-          setResult(data.result);
-        } else {
-          setResult("❌ Failed to process request. Please try again.");
+        if (res.status === "success") {
+          setRoutineData(res.data);
+          // Backup to Supabase
+          const supabase = createClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const { error: saveError } = await supabase.from("smart_routines").insert({
+              user_id: session.user.id,
+              routine_data: res.data,
+            });
+            if (saveError) console.error("Failed to save routine to Supabase:", saveError);
+          }
         }
-      } catch (error) {
-        setResult("❌ Network error. Ensure the backend is running.");
-      } finally {
-        setIsLoading(false);
+      } 
+      else if (activeTab === "exam") {
+        const res = await fetchAPI("/study/assessment", {
+          method: "POST",
+          body: JSON.stringify({ topic: inputTopic, difficulty: "Medium" })
+        });
+        if (res.status === "success") setAssessmentData(res.data);
+      } 
+      else {
+        // Generic fallback for Rubric & Notice (Uses standard text generation)
+
+        const payload = { topic: inputTopic, task_type: activeTab }; 
+        const res = await fetchAPI("/academic/generate", { method: "POST", body: JSON.stringify(payload) });
+        setResult(res.result || res.data || "Task completed successfully.");
       }
+    } catch (error) {
+      alert("Failed to process the request. Please check the network.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const executeTask = () => {
-    const payload: any = { workspace_id: "global", topic: inputTopic };
-    
-    if (activeTab === "routine") {
-      handleCopilotAction("routine", { workspace_id: "global", study_hours: studyHours, focus_areas: [inputTopic] });
-    } else if (activeTab === "exam") {
-      handleCopilotAction("mock-exam", { ...payload, difficulty: "University Level" });
-    } else if (activeTab === "rubric") {
-      handleCopilotAction("generate", { ...payload, task_type: "rubric" });
-    } else if (activeTab === "notice") {
-      handleCopilotAction("notice", { raw_text: inputTopic });
+  const handleClearRoutine = async () => {
+    setRoutineData(null);
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const { error: deleteError } = await supabase.from("smart_routines").delete().eq("user_id", session.user.id);
+      if (deleteError) console.error("Failed to clear routine:", deleteError);
     }
+
   };
 
   return (
@@ -67,23 +94,25 @@ export default function AcademicCopilotPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Left Column: Controls & Inputs */}
+        {/* =========================================
+            LEFT COLUMN: CONTROLS & INPUTS (Unchanged Layout)
+            ========================================= */}
         <div className="lg:col-span-4 space-y-6">
           
           {/* Tools Menu */}
           <div className="bg-[#1e1e1e] border border-white/5 rounded-2xl overflow-hidden shadow-xl p-2">
             <div className="px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Select Tool</div>
             <div className="space-y-1">
-              <button onClick={() => { setActiveTab("routine"); setResult(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "routine" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+              <button onClick={() => { setActiveTab("routine"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "routine" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
                 <Calendar className="w-4 h-4" /> Smart Study Routine
               </button>
-              <button onClick={() => { setActiveTab("exam"); setResult(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "exam" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+              <button onClick={() => { setActiveTab("exam"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "exam" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
                 <Brain className="w-4 h-4" /> Mock Exam Generator
               </button>
-              <button onClick={() => { setActiveTab("rubric"); setResult(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "rubric" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+              <button onClick={() => { setActiveTab("rubric"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "rubric" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
                 <CheckSquare className="w-4 h-4" /> Grading Rubric
               </button>
-              <button onClick={() => { setActiveTab("notice"); setResult(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "notice" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+              <button onClick={() => { setActiveTab("notice"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "notice" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
                 <Bell className="w-4 h-4" /> Formal Notice Engine
               </button>
             </div>
@@ -96,37 +125,39 @@ export default function AcademicCopilotPage() {
             </label>
             
             {activeTab === "notice" ? (
-              <textarea value={inputTopic} onChange={(e) => setInputTopic(e.target.value)} placeholder="e.g., Kal class hobe na, next week e makeup nite bolben..." rows={4} className="w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all resize-none mb-4 text-[15px]" />
+              <textarea value={inputTopic} onChange={(e) => setInputTopic(e.target.value)} placeholder="e.g., Kal class hobe na..." rows={4} className="w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all resize-none mb-4 text-[15px]" />
             ) : (
-              <input type="text" value={inputTopic} onChange={(e) => setInputTopic(e.target.value)} placeholder="e.g., Foreign Policy of Bangladesh" className="w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all mb-4 text-[15px]" />
+              <input type="text" value={inputTopic} onChange={(e) => setInputTopic(e.target.value)} placeholder="e.g., Cold War, Realism" className="w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all mb-4 text-[15px]" />
             )}
 
             {activeTab === "routine" && (
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-400 mb-3 flex items-center justify-between">
-                  <span>Target Study Hours</span> <span className="text-amber-400 font-bold">{studyHours} hrs</span>
+                  <span>Target Study Hours/Day</span> <span className="text-amber-400 font-bold">{studyHours} hrs</span>
                 </label>
                 <input type="range" min="1" max="10" value={studyHours} onChange={(e) => setStudyHours(parseInt(e.target.value))} className="w-full accent-amber-500" />
               </div>
             )}
 
-            <button onClick={executeTask} disabled={!inputTopic || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-medium py-3.5 rounded-xl transition-all">
-              <Sparkles className="w-5 h-5" /> Generate Now
+            <button onClick={executeTask} disabled={!inputTopic || isLoading} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-all shadow-lg">
+              {isLoading ? "Drafting..." : <><Sparkles className="w-5 h-5" /> Generate Now</>}
             </button>
           </div>
         </div>
 
-        {/* Right Column: Results Output */}
+        {/* =========================================
+            RIGHT COLUMN: DYNAMIC RESULTS OUTPUT
+            ========================================= */}
         <div className="lg:col-span-8">
-          <div className="bg-[#1e1e1e] border border-white/5 rounded-2xl p-8 shadow-xl min-h-[500px] flex flex-col relative">
+          <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl p-8 shadow-xl min-h-[500px] flex flex-col relative">
             
-            {!isLoading && !result && (
+            {/* Loading & Empty States */}
+            {!isLoading && !result && !routineData && !assessmentData && (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-500 opacity-70">
                 <FileText className="w-16 h-16 mb-4" />
                 <p className="text-[15px]">Select a tool and enter a topic to generate content.</p>
               </div>
             )}
-
             {isLoading && (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400 animate-pulse">
                 <Sparkles className="w-12 h-12 mb-4 text-amber-500/50 animate-bounce" />
@@ -134,14 +165,95 @@ export default function AcademicCopilotPage() {
               </div>
             )}
 
+            {/* 🔴 1. ROUTINE RENDERER (Glassmorphism Cards) */}
+            {routineData && !isLoading && (
+              <div className="animate-in fade-in space-y-4">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-emerald-400">Your Personalized 7-Day Plan</h3>
+                  <button onClick={handleClearRoutine} className="flex items-center gap-2 text-sm text-rose-400 hover:text-rose-300 font-bold bg-rose-500/10 px-4 py-2 rounded-lg">
+                    <RefreshCw className="w-4 h-4" /> Clear
+                  </button>
+                </div>
+                
+                {["day_1", "day_2", "day_3", "day_4", "day_5", "day_6", "day_7"].map((day, idx) => {
+                  const data = routineData[day];
+                  if (!data) return null;
+                  const focus = data.focus_subject || data.focus || "Daily Task";
+                  const strategy = data.strategy || data;
+                  
+                  return (
+                    <div key={day} className="bg-gradient-to-br from-emerald-500/10 to-slate-900/60 border-l-4 border-emerald-500 border-t border-emerald-500/20 border-r border-emerald-500/20 border-b border-emerald-500/20 p-5 rounded-xl shadow-lg backdrop-blur-md">
+                      <h4 className="text-emerald-400 font-bold mb-2 flex items-center gap-2 text-lg">📅 {day.replace('_', ' ').toUpperCase()}</h4>
+                      <p className="text-gray-200 text-[15px] leading-relaxed">
+                        🎯 <b className="text-white">{focus}:</b> {strategy}
+                      </p>
+                    </div>
+                  );
+                })}
+                {routineData.ai_advice && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 p-5 rounded-xl text-amber-400 text-[15px] font-medium mt-6 flex gap-3 items-start">
+                    <Brain className="w-6 h-6 shrink-0" />
+                    <p><b>AI Advice:</b> {routineData.ai_advice}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 🔴 2. MOCK EXAM RENDERER (Expandable Loop) */}
+            {assessmentData && assessmentData.assessment_type === "Mock Exam" && !isLoading && (
+              <div className="animate-in fade-in bg-[#171717] p-8 rounded-3xl border border-white/10 shadow-2xl">
+                <h3 className="text-2xl font-bold text-white mb-2 flex items-center gap-3"><FileText className="w-6 h-6 text-indigo-400"/> {assessmentData.assessment_type}</h3>
+                <p className="text-indigo-400 font-medium mb-8 pb-4 border-b border-white/10 bg-indigo-500/10 p-3 rounded-lg">{assessmentData.exam_rules}</p>
+
+                <div className="space-y-8">
+                  {assessmentData.questions?.map((q: any, idx: number) => (
+                    <div key={idx} className="bg-[#1e1e1e] p-6 rounded-2xl border border-white/5">
+                      <h4 className="text-lg font-bold text-gray-200 mb-4 leading-relaxed">
+                        <span className="text-indigo-400 mr-2">Q{idx + 1}.</span> {q.q} 
+                        <span className="text-[11px] uppercase tracking-wider ml-3 px-2 py-1 bg-white/10 text-gray-300 rounded-full border border-white/20">{q.difficulty}</span>
+                      </h4>
+                      
+                      <div className="mb-4">
+                        <button onClick={() => setExpandedHints({...expandedHints, [idx]: !expandedHints[idx]})} className="flex items-center gap-2 text-[14px] text-amber-400 font-bold hover:text-amber-300">
+                          <ChevronDown className={`w-4 h-4 transition-transform ${expandedHints[idx] ? "rotate-180" : ""}`} /> 💡 View Hints
+                        </button>
+                        {expandedHints[idx] && (
+                          <ul className="mt-3 ml-6 list-disc text-gray-300 text-[14px] space-y-1 p-3 bg-[#0a0a0a] rounded-xl border border-white/5">
+                            {q.hints?.map((h: string, i: number) => <li key={i}>{h}</li>)}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div>
+                        <button onClick={() => setExpandedAnswers({...expandedAnswers, [idx]: !expandedAnswers[idx]})} className="flex items-center gap-2 text-[14px] text-emerald-400 font-bold hover:text-emerald-300">
+                          <ChevronDown className={`w-4 h-4 transition-transform ${expandedAnswers[idx] ? "rotate-180" : ""}`} /> 👁️ Reveal Ideal Answer
+                        </button>
+                        {expandedAnswers[idx] && (
+                          <div className="mt-4 p-5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                            <p className="text-emerald-300 font-bold mb-2">Key points you MUST include:</p>
+                            <ul className="list-disc ml-6 text-gray-300 text-[14px] mb-5 space-y-1">
+                              {q.key_points?.map((pt: string, i: number) => <li key={i}>{pt}</li>)}
+                            </ul>
+                            <div className="bg-[#0a0a0a] p-4 rounded-lg border border-emerald-500/10">
+                              <p className="text-emerald-400 font-bold mb-2 flex items-center gap-2"><Brain className="w-4 h-4"/> AI Model Answer:</p>
+                              <p className="text-gray-200 text-[14.5px] leading-relaxed">{q.model_answer}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 🔴 3. STANDARD MARKDOWN RENDERER (For Rubric & Notice) */}
             {result && !isLoading && (
               <div className="animate-in fade-in slide-in-from-bottom-6">
                 <h3 className="text-[13px] font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center justify-between border-b border-white/10 pb-4">
                   <span>Generated Output</span>
                   <button onClick={() => navigator.clipboard.writeText(result)} className="text-amber-400 hover:text-amber-300 normal-case font-medium">Copy Text</button>
                 </h3>
-                
-                {/* Premium Markdown Renderer for Output */}
                 <div className="text-gray-200 text-[15.5px] leading-relaxed">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -160,9 +272,9 @@ export default function AcademicCopilotPage() {
                 </div>
               </div>
             )}
+
           </div>
         </div>
-
       </div>
     </div>
   );

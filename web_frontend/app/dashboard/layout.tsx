@@ -14,7 +14,7 @@ import {
   CreditCard, Gift, X, CheckCircle, Zap,
   ArrowRight, XCircle, DownloadCloud, Building2, Loader2,
   Lock, Target, ShieldAlert, Activity, MessageCircle,
-  Send,
+  Send, Menu,
 } from "lucide-react";
 import { fetchAPI } from "../utils/api";
 
@@ -53,6 +53,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userStats, setUserStats] = useState({ queries: 0, documents_analyzed: 0 });
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [isWipingData, setIsWipingData] = useState(false);
+
+  // 🔴 1. Mobile Sidebar State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [userData, setUserData] = useState({
     name: "Scholar",
@@ -179,7 +182,8 @@ useEffect(() => {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isHelpPrivacyOpen, setIsHelpPrivacyOpen] = useState(false);
   const [helpPrivacyTab, setHelpPrivacyTab] = useState<"help" | "privacy">("help");
-
+  const [showProModal, setShowProModal] = useState(false);
+  
   // 🔴 The ONLY client-side gate is for UI display convenience (hiding the
   // dropdown from people who obviously can't use it). The REAL enforcement
   // lives entirely in the backend's ROLE_CHANGE_ALLOWLIST — this constant
@@ -225,6 +229,12 @@ useEffect(() => {
       } else {
         alert(res?.detail || "Role change failed.");
       }
+      if (res?.status === "success") {
+      await supabase.auth.refreshSession();
+      alert("Role updated successfully! Reloading OS...");
+      // 🔴 Force hard reload to reset all frontend states & UI
+      window.location.reload(); 
+      }
     } catch (err: any) {
       console.error("Role change failed:", err);
       alert("You are not authorized to change roles, or the request failed.");
@@ -246,6 +256,23 @@ useEffect(() => {
       console.error("Account deletion failed:", err);
       alert("Failed to delete account. Please try again or contact support.");
       setIsDeletingAccount(false);
+    }
+  };
+
+  // 🔴 Added missing handleNewChat function
+  const handleNewChat = async () => {
+    try {
+      const res = await fetchAPI("/chat/workspaces", { method: "POST" });
+      if (res && res.id) {
+        router.push(`/dashboard/workspaces/${res.id}`);
+        // Auto-close sidebar on mobile
+        if (typeof window !== "undefined" && window.innerWidth < 768) {
+          setIsSidebarOpen(false);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to create new chat:", err);
+      alert("Failed to initialize AI Assistant. Please try again.");
     }
   };
 
@@ -625,51 +652,73 @@ useEffect(() => {
 
   const handleLogout = async () => {
     setIsLoading(true);
+
+    const supabase = createClient();
+      await supabase.auth.signOut();
+      
+    // লোকাল স্টোরেজ ও ক্যাশ ক্লিয়ার করা
+    localStorage.clear();
+    sessionStorage.clear();
+
     await supabase.auth.signOut();
     router.push("/auth/login");
   };
 
-  const [userRole, setUserRole] = useState("guest");
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showGuestLockModal, setShowGuestLockModal] = useState(false);
 
-  useEffect(() => {
-    // Load User Role from Session
-    const session = localStorage.getItem('supabase_session');
-    if (session) {
-      const parsed = JSON.parse(session);
-      const role = parsed.user?.user_metadata?.role?.toLowerCase() || "guest";
-      const dept = parsed.user?.user_metadata?.department;
-      
-      setUserRole(role);
 
-      // 🔴 ACADEMIC VERIFICATION TRIGGER
-      // If student signed up but hasn't verified department info
-      if (role === "student" && !dept) {
-        setShowVerificationModal(true);
-      }
-    }
-  }, []);
-
-  // 🔴 GUEST GATEKEEPER ROUTING LOGIC
   const handleNavigation = (targetPath: string, restrictedRoles: string[] = []) => {
-    if (userRole === "guest" && restrictedRoles.includes("guest")) {
+    // 1. Safely extract role, fallback to "guest"
+    const role = (userData?.role || "guest").toLowerCase();
+    
+    // 2. 🔴 IRON-CLAD GUEST CHECK (Must be the very first check)
+    if (role === "guest" && restrictedRoles.includes("guest")) {
       setShowGuestLockModal(true);
       return;
     }
-    
-    // Faculty Approval Lock
-    if (userRole === "faculty_pending" && targetPath.includes("/admin")) {
+
+    // 3. Faculty Pending Check (Using "as any" to bypass TypeScript strict interface error)
+    const accountStatus = (userData as any)?.account_status || "active";
+    if ((role === "faculty" || role === "faculty_pending") && accountStatus === "pending" && targetPath.includes("/admin")) {
       alert("Your faculty account is pending verification by the University Admin.");
       return;
     }
 
+    // 4. Admin Override & Proceed
     router.push(targetPath);
+    
+    // Auto-close sidebar on mobile after clicking a link
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
   };
 
+  
   return (
-    <div className="flex h-screen text-gray-200 font-sans relative overflow-hidden bg-[url('/background_pic.png')] bg-cover bg-center bg-no-repeat" style={{ backgroundColor: 'rgba(15, 17, 21, 0.92)', backgroundBlendMode: 'overlay' }}>
-      {/* 🔴 GUEST LOCK MODAL */}
+    <div className="flex h-screen text-gray-200 overflow-hidden font-sans bg-[url('/background_pic.png')] bg-cover bg-center bg-no-repeat" style={{ backgroundColor: 'rgba(15, 17, 21, 0.92)', backgroundBlendMode: 'overlay' }}>
+    
+      {/* 🔴 MOBILE TOP HEADER (Visible only on mobile/tabs) */}
+      <div className="md:hidden absolute top-0 left-0 right-0 h-14 bg-[#171717] border-b border-white/5 flex items-center justify-between px-4 z-40">
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-white/5 border border-white/10 rounded-full p-1 flex items-center justify-center">
+            <img src="/logo.png" alt="GSTU Logo" className="w-full h-full object-contain" />
+          </div>
+          <span className="text-[13px] font-bold tracking-wide text-white">GSTU IR AI</span>
+        </Link>
+        <button onClick={() => setIsSidebarOpen(true)} className="text-gray-400 hover:text-white p-2 -mr-2 transition-colors">
+          <Menu className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* 🔴 MOBILE OVERLAY */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {showGuestLockModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className="bg-[#171717] border border-rose-500/30 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
@@ -711,8 +760,32 @@ useEffect(() => {
         </div>
       )}
 
-      <aside className={`${isSidebarOpen ? "w-64 border-r border-white/5" : "w-0 border-none"} transition-all duration-300 ease-in-out bg-[#171717] h-screen flex flex-col shrink-0 z-30 overflow-hidden`}>
-        <div className="flex flex-col h-full w-64">
+      {/* 🔴 NEW: mobile backdrop — tapping it closes the drawer, matching
+          ChatGPT/Claude's mobile sidebar behavior. Only rendered (and only
+          intercepts taps) below the md breakpoint via md:hidden. */}
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in"
+        />
+      )}
+ 
+      {/* 🔴 REWRITTEN: was a pure width-collapse (w-64 -> w-0) which works
+          on desktop but leaves nothing usable on mobile — there was no way
+          to open it as an overlay, and the hamburger toggle would just
+          squish content rather than sliding a drawer over it. Now:
+          - Mobile (<md): fixed slide-over drawer, translate-x in/out, sits
+            above content (z-50) with the backdrop above content but below
+            the drawer.
+          - Desktop (md+): same width-collapse behavior as before, no
+            overlay/backdrop needed since there's room beside the content. */}
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50 md:z-30
+        w-72 ${isSidebarOpen ? "md:w-64 md:border-r md:border-white/5" : "md:w-0 md:border-none"}
+        ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        transition-all duration-300 ease-in-out bg-[#171717] h-screen flex flex-col shrink-0 overflow-hidden
+      `}>
+        <div className="flex flex-col h-full w-72 md:w-64">
           <div className="shrink-0 p-4 border-b border-white/5 bg-[#171717] z-20">
             <div className="flex items-center justify-between min-w-[14rem]">
               <div className="h-20 flex px-3 border-b border-white/5 shrink-0">
@@ -816,6 +889,15 @@ useEffect(() => {
                     <ShieldCheck className="w-4 h-4 text-emerald-400" /> Faculty Node
                   </button>
                 )}
+
+                {/* 🔴 SMART INTEGRATION: Uses existing Chat architecture & features! */}
+                <button 
+                  onClick={handleNewChat} 
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5 group`}
+                >
+                  <MessageSquare className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" /> 
+                  AI Core Assistant
+                </button>
               </div>
             </div>
 
@@ -909,7 +991,7 @@ useEffect(() => {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 relative flex flex-col h-screen bg-[#212121]">
+      <main className="flex-1 min-w-0 relative flex flex-col h-screen bg-[#212121] pt-16 md:pt-0">
         {!isSidebarOpen && (
           <div className="absolute top-4 left-4 z-50">
             <button
@@ -928,14 +1010,19 @@ useEffect(() => {
 
         {isSettingsOpen && (
           <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#171717] w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl flex overflow-hidden border border-white/10 animate-in fade-in zoom-in-95 font-sans">
-              <div className="w-64 bg-[#121212] border-r border-white/5 flex flex-col shrink-0">
-                <div className="p-6 pb-4">
-                  <h2 className="text-xl font-bold text-white">Settings</h2>
-                </div>
+            {/* 🔴 1. MODAL WRAPPER: flex-col on mobile, flex-row on desktop */}
+            <div className="bg-[#171717] w-full max-w-5xl h-[90vh] md:h-[85vh] rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10">
 
-                <div className="flex-1 px-3 space-y-1">
-                  <button onClick={() => setSettingsTab("general")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] font-medium transition-all ${settingsTab === "general" ? "bg-white/10 text-white" : "text-gray-400 hover:bg-white/5 hover:text-gray-200"}`}>
+              {/* 🔴 2. TABS SIDEBAR: Horizontal scroll on mobile, Vertical on desktop */}
+              <div className="w-full md:w-64 bg-[#121212] border-b md:border-b-0 md:border-r border-white/5 flex flex-row md:flex-col shrink-0 overflow-x-auto custom-scrollbar">
+                
+                {/* Container for buttons: w-max forces horizontal scroll on mobile */}
+                <div className="flex flex-row md:flex-col gap-2 p-3 md:p-6 w-max md:w-full">
+                  
+                  <h2 className="hidden md:block text-xl font-bold text-white mb-4">Settings</h2>
+                  
+                  {/* Note the shrink-0 so buttons don't squash on phone screens */}
+                  <button onClick={() => setSettingsTab("general")} className={`shrink-0 w-auto md:w-full flex items-center gap-2 md:gap-3 px-4 py-2.5 md:py-3 rounded-xl text-[13px] md:text-[14px] font-medium transition-all ${settingsTab === "general" ? "bg-white/10 text-white" : "text-gray-400 hover:bg-white/5 hover:text-gray-200"}`}>
                     <Monitor className="w-4 h-4" /> General
                   </button>
                   
@@ -959,7 +1046,8 @@ useEffect(() => {
                 </div>
               </div>
 
-              <div className="flex-1 bg-[#171717] flex flex-col">
+              {/* 🔴 3. SETTINGS CONTENT AREA: Scrollable vertically */}
+              <div className="flex-1 bg-[#171717] overflow-y-auto p-5 md:p-8">
                 <div className="flex justify-end p-4 shrink-0">
                   <button onClick={() => setIsSettingsOpen(false)} className="p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
                 </div>
@@ -1397,48 +1485,51 @@ useEffect(() => {
             </div>
           </div>
         )}
+
         {/* 🔴 FLOATING CUSTOMER SUPPORT WIDGET */}
-        <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end">
-          {isSupportOpen && (
-            <div className="bg-[#171717] border border-white/10 rounded-2xl shadow-2xl w-80 mb-4 overflow-hidden animate-in slide-in-from-bottom-4">
-              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex justify-between items-center">
-                <div>
-                  <h4 className="text-white font-bold text-sm">GSTU Support</h4>
-                  <p className="text-indigo-100 text-[10px]">AI Assistant Online</p>
-                </div>
-                <button onClick={() => setIsSupportOpen(false)} className="text-white/70 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
-              </div>
-              
-              <div className="h-64 overflow-y-auto p-4 space-y-3 bg-[#0a0a0a] custom-scrollbar">
-                {supportChat.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#212121] text-gray-200 border border-white/5'}`}>
-                      {msg.content}
-                    </div>
+        {pathname === '/dashboard' && (
+          <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end">
+            {isSupportOpen && (
+              <div className="bg-[#171717] border border-white/10 rounded-2xl shadow-2xl w-80 mb-4 overflow-hidden animate-in slide-in-from-bottom-4">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex justify-between items-center">
+                  <div>
+                    <h4 className="text-white font-bold text-sm">GSTU Support</h4>
+                    <p className="text-indigo-100 text-[10px]">AI Assistant Online</p>
                   </div>
-                ))}
-                {isSupportLoading && <div className="text-xs text-gray-500 animate-pulse">Typing...</div>}
+                  <button onClick={() => setIsSupportOpen(false)} className="text-white/70 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+                </div>
+                
+                <div className="h-64 overflow-y-auto p-4 space-y-3 bg-[#0a0a0a] custom-scrollbar">
+                  {supportChat.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#212121] text-gray-200 border border-white/5'}`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                  {isSupportLoading && <div className="text-xs text-gray-500 animate-pulse">Typing...</div>}
+                </div>
+                
+                <form onSubmit={handleSupportSubmit} className="p-3 bg-[#171717] border-t border-white/5 flex gap-2">
+                  <input 
+                    type="text" 
+                    value={supportMsg} 
+                    onChange={e => setSupportMsg(e.target.value)} 
+                    placeholder="Ask a question..." 
+                    className="flex-1 bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                  />
+                  <button disabled={isSupportLoading} type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors shrink-0">
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
               </div>
-              
-              <form onSubmit={handleSupportSubmit} className="p-3 bg-[#171717] border-t border-white/5 flex gap-2">
-                <input 
-                  type="text" 
-                  value={supportMsg} 
-                  onChange={e => setSupportMsg(e.target.value)} 
-                  placeholder="Ask a question..." 
-                  className="flex-1 bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
-                />
-                <button disabled={isSupportLoading} type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors shrink-0">
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            </div>
-          )}
-          
-          <button onClick={() => setIsSupportOpen(!isSupportOpen)} className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105">
-            {isSupportOpen ? <X className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
-          </button>
-        </div>
+            )}
+            
+            <button onClick={() => setIsSupportOpen(!isSupportOpen)} className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105">
+              {isSupportOpen ? <X className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );

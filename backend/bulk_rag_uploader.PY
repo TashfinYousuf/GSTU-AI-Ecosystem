@@ -11,7 +11,7 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-INDEX_NAME = "gstu-knowledge-base" # আপনার Pinecone ইনডেক্স
+INDEX_NAME = "gstu-knowledge-base" # Pinecone ইনডেক্স
 
 def bulk_upload_to_vectordb(directory_path: str):
     print(f"🚀 Starting Bulk RAG Upload from: {directory_path}")

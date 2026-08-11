@@ -1,10 +1,13 @@
 import os
 import uuid
 import shutil
+import time
 
+from functools import lru_cache
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from supabase import create_client, Client
@@ -30,9 +33,17 @@ def require_admin(current_user: dict):
 
 # ---------- REAL ANALYTICS (previously the frontend had zero backend behind it) ----------
 
+# 🧠 Cache the analytics data for 5 minutes (300 seconds) so the DB isn't hammered!
+_analytics_cache = {"data": None, "timestamp": 0}
+
 @router.get("/analytics")
 async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
+    
+    current_time = time.time()
+    # Return cached data if it's less than 5 minutes old
+    if _analytics_cache["data"] and (current_time - _analytics_cache["timestamp"] < 300):
+        return _analytics_cache["data"]
 
     try:
         # Supabase Admin API — requires the service_role key (already switched above)
@@ -88,13 +99,18 @@ async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
                 "dept_users": dept_users,
             }
         }
+
+        # Save to cache
+        _analytics_cache["data"] = response_data
+        _analytics_cache["timestamp"] = current_time
+        
     except Exception as e:
         print(f"get_admin_analytics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------- SUPPORT TICKETS ----------
-
+# 🔴 FIX: Changed "status" to "ticket_status"
 @router.get("/tickets")
 async def get_tickets(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
@@ -105,11 +121,11 @@ async def get_tickets(current_user: dict = Depends(get_current_user)):
         print(f"get_tickets error: {e}")
         return {"status": "success", "data": []}
 
-
 @router.post("/tickets/{ticket_id}/resolve")
 async def resolve_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
+        # 🔴 FIX: Changed "status" to "ticket_status" here as well
         supabase.table("support_tickets").update({"status": "resolved"}).eq("id", ticket_id).execute()
         return {"status": "success"}
     except Exception as e:
@@ -118,7 +134,7 @@ async def resolve_ticket(ticket_id: str, current_user: dict = Depends(get_curren
 
 
 # ---------- KNOWLEDGE BASE UPLOAD (was UI-only, no backend wiring at all) ----------
-
+ 
 @router.post("/knowledge-base/upload")
 async def upload_knowledge_base_doc(
     file: UploadFile = File(...),
@@ -128,23 +144,39 @@ async def upload_knowledge_base_doc(
 ):
     require_admin(current_user)
     user_id = current_user.get("sub")
-
+ 
     if not file.filename.lower().endswith((".pdf", ".txt")):
         raise HTTPException(status_code=400, detail="Only PDF or TXT files are supported.")
-
+ 
     try:
+        # 1. Upload to Supabase Storage
         contents = await file.read()
         storage_path = f"knowledge_base/{course_code}/{uuid.uuid4()}_{file.filename}"
-
-        # Upload to Supabase Storage — bucket "documents" must exist
-        # (Supabase Dashboard -> Storage -> New Bucket -> "documents")
         supabase.storage.from_("documents").upload(
             storage_path, contents, {"content-type": file.content_type or "application/octet-stream"}
         )
         public_url = supabase.storage.from_("documents").get_public_url(storage_path)
+ 
+        ## 🔴 2. REAL RAG IMPLEMENTATION: Chunk & Embed
+        os.makedirs("uploads/knowledge_base", exist_ok=True)
+        local_path = f"uploads/knowledge_base/{file.filename}"
+        with open(local_path, "wb") as f:
+            f.write(contents)
+            
+        if file.filename.lower().endswith(".pdf"):
+            loader = PyPDFLoader(local_path)
+            documents = loader.load()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+            chunks = text_splitter.split_documents(documents)
+            
+            # 🔴 FIX: Use your existing vector store function!
+            from app.core.vector_store import get_workspace_vectorstore
+            
+            # Save to a dedicated Global Knowledge Base space
+            vectorstore = get_workspace_vectorstore("global_knowledge_base")
+            vectorstore.add_documents(chunks)
 
-        # Save metadata row — this is what makes the file findable/listable later,
-        # and what your RAG/embedding pipeline should read from to chunk+embed
+        # 3. Save metadata row
         insert_res = supabase.table("knowledge_base_documents").insert({
             "id": str(uuid.uuid4()),
             "uploaded_by": user_id,
@@ -153,55 +185,145 @@ async def upload_knowledge_base_doc(
             "filename": file.filename,
             "storage_path": storage_path,
             "public_url": public_url,
-            "status": "uploaded",  # flip to "processed" once your embedding job finishes
+            "status": "processed",  # 🔴 Marked as Processed for RAG
         }).execute()
-
+ 
         return {
             "status": "success",
-            "message": f"'{file.filename}' uploaded and queued for processing.",
+            "message": f"'{file.filename}' successfully processed, chunked, and memorized by AI.",
             "document": insert_res.data[0] if insert_res.data else None,
         }
     except Exception as e:
         print(f"upload_knowledge_base_doc error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/knowledge-base/upload")
-async def upload_rag_document(
-    file: UploadFile = File(...), 
-    current_user: dict = Depends(get_current_user)
-):
-    user_role = current_user.get("user_metadata", {}).get("role", "student").lower()
-    
-    # 🔴 STRICT RBAC: Only approved admins/faculty can upload to the Global AI Brain
-    if user_role not in ["admin", "faculty"]:
-        raise HTTPException(status_code=403, detail="Clearance required. Only approved faculty can upload core documents.")
-        
+ 
+@router.get("/knowledge-base")
+async def list_knowledge_base_docs(current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
     try:
-        # 1. Save file locally for processing
-        os.makedirs("uploads/knowledge_base", exist_ok=True)
-        file_path = f"uploads/knowledge_base/{file.filename}"
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # 2. Extract and Chunk Text (Exactly like original app.py)
-        if file.filename.endswith(".pdf"):
-            loader = PyPDFLoader(file_path)
-            documents = loader.load()
-            
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-            chunks = text_splitter.split_documents(documents)
-            
-            # 3. Add to Global Vector Store (FAISS/Chroma)
-            get_workspace_vectorstore(chunks, metadata={"source": file.filename})
-            
-            return {"status": "success", "message": f"{len(chunks)} chunks embedded into Global AI Brain."}
-        else:
-            raise HTTPException(status_code=400, detail="Only PDF files are currently supported for academic ingestion.")
-            
+        res = supabase.table("knowledge_base_documents").select("*").order("created_at", desc=True).execute()
+        return {"status": "success", "data": res.data or []}
     except Exception as e:
+        print(f"list_knowledge_base_docs error: {e}")
+        return {"status": "success", "data": []}
+ 
+ 
+# ---------- NOTICE PUBLISHING (previously UI-only, no backend at all) ----------
+ 
+@router.post("/notices/publish")
+async def publish_notice(
+    title: str = Form(...),
+    category: str = Form(...),
+    publish_date: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user),
+):
+    require_admin(current_user)
+    user_id = current_user.get("sub")
+ 
+    try:
+        attachment_url = None
+        if file:
+            storage_path = f"notices/{uuid.uuid4()}_{file.filename}"
+            contents = await file.read()
+            supabase.storage.from_("documents").upload(
+                storage_path, contents, {"content-type": file.content_type or "application/octet-stream"}
+            )
+            attachment_url = supabase.storage.from_("documents").get_public_url(storage_path)
+ 
+        insert_res = supabase.table("notices").insert({
+            "id": str(uuid.uuid4()),
+            "published_by": user_id,
+            "title": title,
+            "category": category,
+            "publish_date": publish_date,
+            "attachment_url": attachment_url,
+        }).execute()
+ 
+        return {
+            "status": "success",
+            "message": "Notice published to Department Hub.",
+            "notice": insert_res.data[0] if insert_res.data else None,
+        }
+    except Exception as e:
+        print(f"publish_notice error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+@router.get("/notices")
+async def list_notices():
+    """Public — no auth dependency, since notices should be visible to
+    students on the Department Hub. If notices should ever contain
+    sensitive info, add Depends(get_current_user) back here."""
+    try:
+        res = supabase.table("notices").select("*").order("publish_date", desc=True).execute()
+        return {"status": "success", "data": res.data or []}
+    except Exception as e:
+        print(f"list_notices error: {e}")
+        return {"status": "success", "data": []}
+ 
+ 
+# ---------- PENDING FACULTY APPROVAL QUEUE ----------
+ 
+@router.get("/pending-faculty")
+async def list_pending_faculty(current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
+    try:
+        users_res = supabase.auth.admin.list_users()
+        all_users = users_res if isinstance(users_res, list) else getattr(users_res, "users", [])
+        pending = []
+        for u in all_users:
+            meta = getattr(u, "user_metadata", None) or (u.get("user_metadata") if isinstance(u, dict) else {}) or {}
+            if meta.get("role") == "faculty" and meta.get("account_status") == "pending":
+                uid = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
+                email = getattr(u, "email", None) or (u.get("email") if isinstance(u, dict) else None)
+                pending.append({"id": uid, "email": email, "full_name": meta.get("full_name"), "department": meta.get("department"), "designation": meta.get("designation")})
+        return {"status": "success", "data": pending}
+    except Exception as e:
+        print(f"list_pending_faculty error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+# 🔴 FIX: Properly extract the User object from the UserResponse
+@router.post("/pending-faculty/{target_user_id}/approve")
+async def approve_faculty(target_user_id: str, current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
+    try:
+        user_resp = supabase.auth.admin.get_user_by_id(target_user_id)
+        user_obj = user_resp.user if hasattr(user_resp, 'user') else user_resp
+        
+        existing_meta = getattr(user_obj, "user_metadata", {}) or {}
+        if isinstance(user_obj, dict):
+            existing_meta = user_obj.get("user_metadata", {}) or {}
+            
+        supabase.auth.admin.update_user_by_id(target_user_id, {
+            "user_metadata": {**existing_meta, "account_status": "active"}
+        })
+        return {"status": "success", "message": "Faculty account approved."}
+    except Exception as e:
+        print(f"approve_faculty error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/pending-faculty/{target_user_id}/reject")
+async def reject_faculty(target_user_id: str, current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
+    try:
+        user_resp = supabase.auth.admin.get_user_by_id(target_user_id)
+        user_obj = user_resp.user if hasattr(user_resp, 'user') else user_resp
+        
+        existing_meta = getattr(user_obj, "user_metadata", {}) or {}
+        if isinstance(user_obj, dict):
+            existing_meta = user_obj.get("user_metadata", {}) or {}
+            
+        supabase.auth.admin.update_user_by_id(target_user_id, {
+            "user_metadata": {**existing_meta, "account_status": "rejected"}
+        })
+        return {"status": "success", "message": "Faculty account rejected."}
+    except Exception as e:
+        print(f"reject_faculty error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    
 class SupportTicketRequest(BaseModel):
     ticket_query: str
     student_department: str

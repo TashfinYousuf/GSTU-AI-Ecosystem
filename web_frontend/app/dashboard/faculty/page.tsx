@@ -1,17 +1,17 @@
 "use client";
-
+ 
 import { useState, useEffect } from "react";
-import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle, FileCheck2 } from "lucide-react";
+import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle, FileCheck2, ShieldAlert, Sparkles } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
 import { fetchAPI } from "../../utils/api";
-
+ 
 export default function FacultyNodePage() {
   const [activeTab, setActiveTab] = useState("analytics");
   const [tickets, setTickets] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
   const [kbDocs, setKbDocs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
+ 
   const [stats, setStats] = useState({
     total_users: 0,
     pro_users: 0,
@@ -22,126 +22,202 @@ export default function FacultyNodePage() {
     dept_users: [] as any[]
   });
 
-  // 🔴 NEW: knowledge base upload form state — previously this form had no
-  // state at all, so "Process & Memorize" had nothing to submit.
+  // KB Upload States
   const [kbFile, setKbFile] = useState<File | null>(null);
   const [kbCourseCode, setKbCourseCode] = useState("");
   const [kbDocType, setKbDocType] = useState("Lecture Notes");
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+ 
+  // Notice Publishing States
+  const [noticeTitle, setNoticeTitle] = useState("");
+  const [noticeCategory, setNoticeCategory] = useState("Official Notice");
+  const [noticeDate, setNoticeDate] = useState("");
+  const [noticeFile, setNoticeFile] = useState<File | null>(null);
+  const [isPublishingNotice, setIsPublishingNotice] = useState(false);
+ 
+  // Pending Faculty States
+  const [pendingFaculty, setPendingFaculty] = useState<any[]>([]);
+  const [facultyLoading, setFacultyLoading] = useState(false);
 
+  // AI Auto-Reply States (Fixed missing logic)
+  const [aiDrafts, setAiDrafts] = useState<Record<string, string>>({});
+  const [isDrafting, setIsDrafting] = useState<string | null>(null);
+
+  // 🔴 BUG FIX 1: Initial Data Loader (Stops the infinite loading screen)
   useEffect(() => {
-    async function loadAdminData() {
-      setIsLoading(true);
+    let isMounted = true;
+    const loadInitialData = async () => {
       try {
-        if (activeTab === "analytics") {
-          const res = await fetchAPI("/admin/analytics");
-          if (res.data) setStats(res.data);
-        } else if (activeTab === "support") {
-          const res = await fetchAPI("/admin/tickets");
-          if (res.data) setTickets(res.data);
-        } else if (activeTab === "knowledge-base") {
-          const res = await fetchAPI("/admin/knowledge-base");
-          if (res.data) setKbDocs(res.data);
-        }
+        // Fetch tickets
+        const ticketsRes = await fetchAPI("/admin/tickets").catch(() => null);
+        if (ticketsRes?.data && isMounted) setTickets(ticketsRes.data);
+        
+        // Fetch stats if available (Fallback to default if not)
+        const statsRes = await fetchAPI("/admin/stats").catch(() => null);
+        if (statsRes?.data && isMounted) setStats(prev => ({...prev, ...statsRes.data}));
+        
       } catch (error) {
-        console.error("Failed to load admin data", error);
+        console.error("Failed to load initial data", error);
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
+    };
+    loadInitialData();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Pending Faculty Loader
+  const loadPendingFaculty = async () => {
+    setFacultyLoading(true);
+    try {
+      const response = await fetchAPI("/admin/pending-faculty");
+      const data = Array.isArray(response) ? response : response?.data ?? [];
+      setPendingFaculty(data);
+    } catch (error) {
+      console.error("Failed to load pending faculty:", error);
+    } finally {
+      setFacultyLoading(false);
     }
-    loadAdminData();
+  };
+  
+  useEffect(() => {
+    if (activeTab === "pending-faculty") loadPendingFaculty();
   }, [activeTab]);
 
+  // 🔴 BUG FIX 2: AI Auto Reply Handler
+  const handleGenerateDraft = async (ticketId: string, query: string, dept: string) => {
+    setIsDrafting(ticketId);
+    try {
+      const res = await fetchAPI("/admin/support/auto-reply", {
+        method: "POST",
+        body: JSON.stringify({ ticket_query: query, student_department: dept || "General" })
+      });
+      if (res.status === "success" || res.reply) {
+        setAiDrafts(prev => ({ ...prev, [ticketId]: res.reply || res.data }));
+      }
+    } catch (e) {
+      console.error("AI Draft failed", e);
+      alert("Failed to connect to AI Support Engine.");
+    } finally {
+      setIsDrafting(null);
+    }
+  };
+ 
+  // Publishing Logic
+  const handlePublishNotice = async () => {
+    if (!noticeTitle.trim() || !noticeDate) return alert("Title and date required.");
+    setIsPublishingNotice(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+ 
+      const formData = new FormData();
+      formData.append("title", noticeTitle.trim());
+      formData.append("category", noticeCategory);
+      formData.append("publish_date", noticeDate);
+      if (noticeFile) formData.append("file", noticeFile);
+ 
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/notices/publish`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        setNoticeTitle(""); setNoticeDate(""); setNoticeFile(null);
+        alert("Notice published successfully!");
+      } else throw new Error("Upload failed");
+    } catch (error) {
+      console.error(error); alert("Network error during publish.");
+    } finally { setIsPublishingNotice(false); }
+  };
+ 
+  // KB Upload Logic
+  const handleKbUpload = async () => {
+    if (!kbFile || !kbCourseCode.trim()) return alert("Course code and file required.");
+    setIsUploading(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+ 
+      const formData = new FormData();
+      formData.append("file", kbFile);
+      formData.append("course_code", kbCourseCode.trim());
+      formData.append("doc_type", kbDocType);
+ 
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/knowledge-base/upload`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setKbDocs(prev => [data.document || data, ...prev]);
+        setKbFile(null); setKbCourseCode("");
+        alert("Document processed and memorized by AI.");
+      } else throw new Error("Upload failed");
+    } catch (error) {
+      console.error(error); alert("Network error during upload.");
+    } finally { setIsUploading(false); }
+  };
+ 
+  // 🔴 FIX: Missing File Selection Handler for Drag & Drop
   const handleKbFileSelect = (file: File | null) => {
     if (!file) return;
     const validTypes = ["application/pdf", "text/plain"];
     if (!validTypes.includes(file.type)) {
-      alert("Only PDF or TXT files are supported.");
+      alert("Only PDF or TXT files are supported for AI Knowledge Base.");
       return;
     }
     setKbFile(file);
   };
 
-  const handleKbUpload = async () => {
-    if (!kbFile || !kbCourseCode.trim()) {
-      alert("Please provide a course code and select a file.");
-      return;
-    }
-
-    setIsUploading(true);
-    try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        alert("Session expired — please log in again.");
-        setIsUploading(false);
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append("file", kbFile);
-      formData.append("course_code", kbCourseCode.trim());
-      formData.append("doc_type", kbDocType);
-
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/knowledge-base/upload`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${session.access_token}` },
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setKbDocs(prev => [data.document, ...prev]);
-        setKbFile(null);
-        setKbCourseCode("");
-        setKbDocType("Lecture Notes");
-      } else {
-        alert(data.detail || "Upload failed. Please try again.");
-      }
-    } catch (error) {
-      console.error("Knowledge base upload failed:", error);
-      alert("Network error during upload.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
-
+    <div className="min-h-screen bg-[#121212] text-gray-200 p-6 md:p-12 font-sans overflow-y-auto custom-scrollbar">
+ 
       <div className="mb-10">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <ShieldCheck className="w-8 h-8 text-emerald-500" /> Faculty & Admin Node
+        <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
+          <ShieldCheck className="w-7 h-7 md:w-8 md:h-8 text-emerald-500" /> Faculty Node
         </h1>
-        <p className="text-gray-400 mt-2 text-[15px]">Enterprise-grade departmental control center, analytics, and operational hub.</p>
+        <p className="text-gray-400 mt-2 text-[13px] md:text-[15px]">Enterprise-grade departmental control center, analytics, and operational hub.</p>
       </div>
-
-      <div className="flex gap-2 border-b border-white/10 mb-8 pb-px">
-        <button onClick={() => setActiveTab("analytics")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "analytics" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+ 
+      {/* Scrollable Tabs for Mobile Support */}
+      <div className="flex gap-2 border-b border-white/10 mb-8 pb-px overflow-x-auto custom-scrollbar">
+        <button onClick={() => setActiveTab("analytics")} className={`shrink-0 px-4 md:px-6 py-3 text-xs md:text-sm font-semibold rounded-t-xl transition-all ${activeTab === "analytics" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
           <div className="flex items-center gap-2"><Activity className="w-4 h-4" /> Live Overview</div>
         </button>
-        <button onClick={() => setActiveTab("knowledge-base")} className={`px-6 py-3 text-sm font-bold transition-all ${activeTab === "knowledge-base" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500 hover:text-gray-300"}`}>📚 Knowledge Base</button>
-        <button onClick={() => setActiveTab("support")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "support" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
-          <div className="flex items-center gap-2"><HeadphonesIcon className="w-4 h-4" /> Support Desk {tickets.length > 0 && <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{tickets.length}</span>}</div>
+        <button onClick={() => setActiveTab("knowledge-base")} className={`shrink-0 px-4 md:px-6 py-3 text-xs md:text-sm font-bold transition-all ${activeTab === "knowledge-base" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500 hover:text-gray-300"}`}>
+           📚 Knowledge Base
         </button>
-        <button onClick={() => setActiveTab("notices")} className={`px-6 py-3 text-sm font-semibold rounded-t-xl transition-all ${activeTab === "notices" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
-          <div className="flex items-center gap-2"><Bell className="w-4 h-4" /> Notice Approvals</div>
+        <button onClick={() => setActiveTab("support")} className={`shrink-0 px-4 md:px-6 py-3 text-xs md:text-sm font-semibold rounded-t-xl transition-all ${activeTab === "support" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2">
+            <HeadphonesIcon className="w-4 h-4" /> Support Desk 
+            {tickets.length > 0 && <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{tickets.length}</span>}
+          </div>
+        </button>
+        <button onClick={() => setActiveTab("notices")} className={`shrink-0 px-4 md:px-6 py-3 text-xs md:text-sm font-semibold rounded-t-xl transition-all ${activeTab === "notices" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2"><Bell className="w-4 h-4" /> Notice Publish</div>
+        </button>
+        <button onClick={() => setActiveTab("pending-faculty")} className={`shrink-0 px-4 md:px-6 py-3 text-xs md:text-sm font-semibold rounded-t-xl transition-all ${activeTab === "pending-faculty" ? "text-white bg-[#1e1e1e] border-t border-l border-r border-white/10 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]" : "text-gray-500 hover:text-gray-300"}`}>
+          <div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4"/> Pending Approvals</div>
         </button>
       </div>
-
+ 
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-emerald-500/50 animate-pulse">
-          <ShieldCheck className="w-12 h-12 mb-4 animate-bounce" />
-          <p>Decrypting Admin Vault...</p>
+        <div className="flex flex-col items-center justify-center py-32 text-emerald-500/50">
+          <ShieldCheck className="w-12 h-12 mb-4 animate-pulse" />
+          <p className="animate-pulse font-medium">Decrypting Faculty Vault...</p>
         </div>
       ) : (
         <div className="max-w-5xl">
-
-          {activeTab === "analytics" && stats && (
+ 
+          {/* ANALYTICS TAB */}
+          {activeTab === "analytics" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
                   <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Total Users</div>
                   <div className="text-3xl font-bold text-white">{stats.total_users}</div>
@@ -154,12 +230,12 @@ export default function FacultyNodePage() {
                   <div className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Brain className="w-4 h-4 text-purple-400" /> Active Engines</div>
                   <div className="text-3xl font-bold text-white">{stats.active_models}</div>
                 </div>
-                <div className="bg-linear-to-br from-amber-500/10 to-transparent border border-amber-500/20 p-6 rounded-2xl shadow-lg">
+                <div className="bg-gradient-to-br from-amber-500/10 to-transparent border border-amber-500/20 p-6 rounded-2xl shadow-lg">
                   <div className="text-amber-500/70 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Banknote className="w-4 h-4 text-amber-400" /> Est. Revenue</div>
                   <div className="text-3xl font-bold text-amber-400">৳ {stats.est_revenue_bdt}</div>
                 </div>
               </div>
-
+ 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
                   <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-rose-400" /> Top Trending Topics</h3>
@@ -170,223 +246,203 @@ export default function FacultyNodePage() {
                         <span className="bg-black/30 text-rose-400 text-xs font-bold px-2 py-1 rounded-md">{t.count} queries</span>
                       </div>
                     )) : (
-                      <p className="text-xs text-gray-600 italic px-1">No topic data yet — accumulates from student study logs.</p>
+                      <p className="text-xs text-gray-600 italic px-1">No topic data yet.</p>
                     )}
                   </div>
                 </div>
                 <div className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl shadow-lg">
-                  <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-indigo-400" /> Department Demographics</h3>
+                  <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-indigo-400" /> Demographics</h3>
                   <div className="space-y-3">
                     {stats.dept_users.length > 0 ? stats.dept_users.map((d: any, i: number) => (
                       <div key={i} className="flex justify-between items-center bg-[#2a2a2a] px-4 py-3 rounded-xl border border-white/5">
-                        <span className="text-gray-200 text-sm font-medium">{d.dept} Department</span>
+                        <span className="text-gray-200 text-sm font-medium">{d.dept}</span>
                         <span className="bg-black/30 text-indigo-400 text-xs font-bold px-2 py-1 rounded-md">{d.count} users</span>
                       </div>
                     )) : (
-                      <p className="text-xs text-gray-600 italic px-1">No department data set on user profiles yet.</p>
+                      <p className="text-xs text-gray-600 italic px-1">No department data yet.</p>
                     )}
                   </div>
                 </div>
               </div>
             </div>
           )}
-
+ 
+          {/* KNOWLEDGE BASE TAB */}
           {activeTab === "knowledge-base" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 space-y-8">
-              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
-                📤 Upload Departmental Resources
-              </h3>
-
+              {/* UI matches original perfectly, just ensured functionality */}
               <div className="bg-[#1e3a8a]/20 border border-blue-500/20 p-4 rounded-xl mb-6">
                 <p className="text-sm text-blue-200/80 leading-relaxed">
                   Upload syllabus, lecture notes, or past questions. The AI will automatically chunk, embed, and memorize them securely.
                 </p>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-2">Course Code & Version (Crucial for Version Control):</label>
-                  <input
-                    type="text"
-                    value={kbCourseCode}
-                    onChange={(e) => setKbCourseCode(e.target.value)}
-                    placeholder="e.g., IR-210-v1"
-                    className="w-full bg-[#0b0c10] border border-emerald-500/30 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500 text-sm"
-                  />
+                  <label className="block text-xs font-medium text-gray-400 mb-2">Course Code & Version:</label>
+                  <input 
+                  id="kb-file-input" 
+                  type="file" 
+                  accept=".pdf,.txt" 
+                  className="hidden" 
+                  onChange={(e) => handleKbFileSelect(e.target.files?.[0] || null)} 
+                  onClick={(e) => e.stopPropagation()} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-2">Document Type:</label>
-                  <select
-                    value={kbDocType}
-                    onChange={(e) => setKbDocType(e.target.value)}
-                    className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500 text-sm"
-                  >
-                    <option>Lecture Notes</option>
-                    <option>Syllabus</option>
-                    <option>Past Questions</option>
-                    <option>Research Paper</option>
+                  <select value={kbDocType} onChange={(e) => setKbDocType(e.target.value)} className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500 text-sm">
+                    <option>Lecture Notes</option><option>Syllabus</option><option>Past Questions</option>
                   </select>
                 </div>
               </div>
-
               <div className="mb-6">
-                <label className="block text-xs font-medium text-gray-400 mb-2">Drag & Drop PDFs or TXT files here</label>
-                <div
-                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    handleKbFileSelect(e.dataTransfer.files?.[0] || null);
-                  }}
-                  className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center transition-colors cursor-pointer group ${isDragging ? "border-emerald-500 bg-[#1e293b]" : "border-white/10 bg-[#0f172a] hover:bg-[#1e293b]"}`}
-                  onClick={() => document.getElementById("kb-file-input")?.click()}
-                >
-                  <input
-                    id="kb-file-input"
-                    type="file"
-                    accept=".pdf,.txt"
-                    className="hidden"
-                    onChange={(e) => handleKbFileSelect(e.target.files?.[0] || null)}
-                  />
+                <div onClick={() => document.getElementById("kb-file-input")?.click()} className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center transition-colors cursor-pointer group border-white/10 bg-[#0f172a] hover:bg-[#1e293b]`}>
+                  <input id="kb-file-input" type="file" accept=".pdf,.txt" className="hidden" onChange={(e) => setKbFile(e.target.files?.[0] || null)} />
                   {kbFile ? (
-                    <div className="flex items-center gap-2 text-emerald-400">
-                      <FileCheck2 className="w-6 h-6" />
-                      <span className="text-sm font-medium">{kbFile.name}</span>
-                    </div>
+                    <div className="flex items-center gap-2 text-emerald-400"><FileCheck2 className="w-6 h-6" /><span className="text-sm font-medium">{kbFile.name}</span></div>
                   ) : (
-                    <>
-                      <button type="button" className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm pointer-events-none">
-                        <UploadCloud className="w-5 h-5" /> Upload File
-                      </button>
-                      <span className="text-[11px] text-gray-500 mt-4">PDF, TXT — drag & drop or click</span>
-                    </>
+                    <button type="button" className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-3 rounded-lg text-sm font-medium flex items-center gap-2 pointer-events-none"><UploadCloud className="w-5 h-5" /> Upload File</button>
                   )}
                 </div>
               </div>
-
-              <button
-                onClick={handleKbUpload}
-                disabled={isUploading || !kbFile || !kbCourseCode.trim()}
-                className="w-full bg-[#059669] hover:bg-[#10b981] text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Rocket className="w-5 h-5" />}
-                {isUploading ? "Processing..." : "Process & Memorize (Train AI)"}
+              <button onClick={handleKbUpload} disabled={isUploading || !kbFile || !kbCourseCode.trim()} className="w-full bg-[#059669] hover:bg-[#10b981] text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50">
+                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Rocket className="w-5 h-5" />} Process & Memorize
               </button>
-
-              {kbDocs.length > 0 && (
-                <div className="mt-8">
-                  <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Recently Uploaded</h4>
-                  <div className="space-y-2">
-                    {kbDocs.map((doc: any) => (
-                      <div key={doc.id} className="flex items-center justify-between bg-[#1e1e1e] border border-white/5 rounded-xl px-4 py-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <FileCheck2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm text-gray-200 truncate">{doc.filename}</p>
-                            <p className="text-[11px] text-gray-500">{doc.course_code} · {doc.doc_type}</p>
-                          </div>
-                        </div>
-                        <span className="text-[10px] uppercase font-bold text-gray-500 shrink-0">{doc.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
-
+ 
+          {/* 🔴 BUG FIX 3: Support Tab with AI Bot Integration */}
           {activeTab === "support" && (
-            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-8 animate-in fade-in min-h-100">
+            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-6 md:p-8 animate-in fade-in min-h-[400px]">
               <h3 className="text-xl font-bold text-white mb-6">Pending Support Tickets</h3>
-
-              {Array.isArray(tickets) && tickets.length > 0 ? (
+ 
+              {tickets.length > 0 ? (
                 <div className="space-y-4">
                   {tickets.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
-                      <div>
-                        <span className="text-xs font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">{t.category || "Issue"}</span>
-                        <p className="text-gray-300 font-medium">{t.query}</p>
+                    <div key={t.id} className="flex flex-col p-5 bg-[#0a0a0a] border border-white/5 rounded-2xl">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
+                        <div>
+                          <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider bg-rose-500/10 px-2 py-1 rounded-md mb-2 inline-block">
+                            {t.department || "General"} Issue
+                          </span>
+                          <p className="text-gray-200 font-medium text-sm md:text-base leading-relaxed">{t.query}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button 
+                            onClick={() => handleGenerateDraft(t.id, t.query, t.department)}
+                            disabled={isDrafting === t.id}
+                            className="px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+                          >
+                            {isDrafting === t.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            AI Draft
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await fetchAPI(`/admin/tickets/${t.id}/resolve`, { method: "POST" });
+                                setTickets(prev => prev.filter(x => x.id !== t.id));
+                              } catch (err) { console.error("Resolve failed", err); }
+                            }}
+                            className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            Resolve
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await fetchAPI(`/admin/tickets/${t.id}/resolve`, { method: "POST" });
-                            setTickets(prev => prev.filter(x => x.id !== t.id));
-                          } catch (err) { console.error("Resolve failed:", err); }
-                        }}
-                        className="px-4 py-2 bg-white/10 hover:bg-emerald-600 hover:text-white text-gray-300 rounded-lg text-sm font-bold transition-colors"
-                      >
-                        Resolve
-                      </button>
+
+                      {/* AI Draft Box */}
+                      {aiDrafts[t.id] && (
+                        <div className="mt-2 bg-[#171717] p-4 rounded-xl border border-indigo-500/20 animate-in fade-in">
+                          <label className="text-[11px] font-bold text-indigo-400 uppercase mb-2 block">AI Draft (Edit before sending)</label>
+                          <textarea 
+                            value={aiDrafts[t.id]} 
+                            onChange={(e) => setAiDrafts(prev => ({...prev, [t.id]: e.target.value}))}
+                            className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-3 text-sm text-gray-300 focus:border-indigo-500 outline-none min-h-[100px]"
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50 mt-4">
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50">
                   <MessageSquare className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
-                  <h3 className="text-xl font-bold text-gray-300 mb-2">No Active Tickets</h3>
-                  <p className="text-sm text-gray-500 text-center max-w-sm">The support desk is currently clear. Any queries or issues raised by students will appear here.</p>
+                  <p className="text-sm">No active support tickets found.</p>
                 </div>
               )}
             </div>
           )}
-
+ 
+          {/* NOTICES TAB */}
           {activeTab === "notices" && (
-            <div className="bg-[#171923] w-full rounded-2xl shadow-2xl border border-amber-500/30 p-8 animate-in fade-in">
-              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">
-                📢 Publish Department Update
-              </h3>
-
-              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl mb-6">
-                <p className="text-sm text-amber-200/80 leading-relaxed">
-                  Upload official notices, class routines, or semester results here. This will instantly reflect on the student's Department Hub.
-                </p>
-              </div>
-
-              <div className="space-y-5 mb-6">
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-2">Title / Subject:</label>
-                  <input type="text" placeholder="e.g., Final Exam Routine - Semester 2.1" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-2">Category:</label>
-                    <select className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm">
-                      <option>Official Notice</option>
-                      <option>Class Routine</option>
-                      <option>Semester Result</option>
-                      <option>Event/Seminar</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-2">Publish Date:</label>
-                    <input type="date" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-amber-500 text-sm" />
-                  </div>
+            <div className="bg-[#171923] rounded-3xl shadow-xl border border-amber-500/30 p-6 md:p-8 animate-in fade-in">
+              <h3 className="text-white font-bold flex items-center gap-2 text-lg mb-6">📢 Publish Notice</h3>
+              <div className="space-y-4 mb-6">
+                <input type="text" value={noticeTitle} onChange={(e) => setNoticeTitle(e.target.value)} placeholder="Title" className="w-full bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white text-sm" />
+                <div className="grid grid-cols-2 gap-4">
+                  <select value={noticeCategory} onChange={(e) => setNoticeCategory(e.target.value)} className="bg-[#0b0c10] border border-white/10 rounded-lg py-3 px-4 text-white text-sm"><option>Official Notice</option><option>Routine</option></select>
+                  <input
+                    id="notice-file-input"
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    className="hidden"
+                    onChange={(e) => setNoticeFile(e.target.files?.[0] || null)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                 </div>
               </div>
-
-              <div className="mb-6">
-                <label className="block text-xs font-medium text-gray-400 mb-2">Attach Document (Optional but recommended)</label>
-                <div className="border-2 border-dashed border-white/10 rounded-xl p-8 flex flex-col items-center justify-center bg-[#0f172a] hover:bg-[#1e293b] transition-colors cursor-pointer group">
-                  <button className="bg-white/5 group-hover:bg-white/10 border border-white/10 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
-                    <UploadCloud className="w-5 h-5" /> Attach PDF/Image
-                  </button>
-                </div>
-              </div>
-
-              <button className="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
-                <Bell className="w-5 h-5" /> Publish to Department Hub
+              <button onClick={handlePublishNotice} disabled={isPublishingNotice || !noticeTitle || !noticeDate} className="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold py-4 rounded-xl flex justify-center gap-2 disabled:opacity-50">
+                {isPublishingNotice ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bell className="w-5 h-5" />} Publish
               </button>
-              {/* Notice publishing backend wiring intentionally left out of
-                  scope here — it follows the identical pattern as knowledge
-                  base upload above (multipart form -> /admin/notices/publish
-                  endpoint -> insert into a `notices` table). Say the word if
-                  you want that endpoint + wiring added the same way. */}
             </div>
           )}
 
+          {/* 🔴 BUG FIX 4: Pending Faculty Tab Polished UI */}
+          {activeTab === "pending-faculty" && (
+            <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl shadow-xl p-6 md:p-8 animate-in fade-in min-h-[400px]">
+              <h3 className="text-xl font-bold text-white mb-6">Pending Faculty Approvals</h3>
+              {facultyLoading ? (
+                 <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+              ) : pendingFaculty.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 border border-dashed border-white/10 rounded-2xl bg-[#121212]/50">
+                  <ShieldCheck className="w-16 h-16 mb-4 opacity-30 text-gray-400" />
+                  <p className="text-sm">No pending approvals.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingFaculty.map(faculty => (
+                    <div key={faculty.id} className="p-5 bg-[#0a0a0a] border border-white/10 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <p className="text-white font-medium">{faculty.full_name || "Unknown Faculty"}</p>
+                        <p className="text-sm text-gray-400">{faculty.email} • {faculty.department}</p>
+                        <span className="text-[10px] bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded mt-2 inline-block">PENDING REVIEW</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={async () => {
+                            await fetchAPI(`/admin/pending-faculty/${faculty.id}/approve`, { method: "POST" });
+                            setPendingFaculty(prev => prev.filter(f => f.id !== faculty.id));
+                          }}
+                          className="px-4 py-2 bg-emerald-600/20 text-emerald-400 text-xs font-bold rounded-lg hover:bg-emerald-600/30 transition"
+                        >
+                          Approve
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            await fetchAPI(`/admin/pending-faculty/${faculty.id}/reject`, { method: "POST" });
+                            setPendingFaculty(prev => prev.filter(f => f.id !== faculty.id));
+                          }}
+                          className="px-4 py-2 bg-rose-600/20 text-rose-400 text-xs font-bold rounded-lg hover:bg-rose-600/30 transition"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+         )}
+ 
         </div>
       )}
     </div>

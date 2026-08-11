@@ -1,6 +1,6 @@
 import { createClient } from "./supabase/client";
 
-// 🔴 Strictly use 127.0.0.1 to avoid browser CORS/Origin blocks
+// 🔴 Strictly use 127.0.0.1 to avoid browser CORS/Origin blocks locally
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
 
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
@@ -14,16 +14,28 @@ export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  // ⚡ 1. SMART CACHING STRATEGY: 
+  // GET requests are cached for 60s at the Edge. POST/PUT bypass cache.
+  const isGet = !options.method || options.method.toUpperCase() === "GET";
+  
+  const fetchOptions: RequestInit = {
     ...options,
     headers,
-  });
+    cache: isGet ? "default" : "no-store",
+    next: isGet ? { revalidate: 60 } : { revalidate: 0 },
+  };
 
-  const data = await response.json();
+  try {
+    const response = await fetch(`${BASE_URL}${endpoint}`, fetchOptions);
+    const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(data.detail || "API request failed");
+    if (!response.ok) {
+      throw new Error(data.detail || data.message || "API request failed");
+    }
+
+    return data;
+  } catch (error: any) {
+    console.error(`[API Error] ${endpoint}:`, error);
+    throw error;
   }
-
-  return data;
 }

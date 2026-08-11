@@ -1,9 +1,11 @@
+import datetime
 import os
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from app.core.security import get_current_user
+from app.core.security import get_optional_current_user
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 # 🔴 FIX: was using the anon key (SUPABASE_KEY) independently of chat.py's
@@ -167,4 +169,54 @@ async def get_student_mapping(current_user: dict = Depends(get_current_user)):
         return {"status": "success", "data": logs, "ai_evaluation": ai_eval}
     except Exception as e:
         print(f"get_student_mapping error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FeedbackRequest(BaseModel):
+    query: str
+    response: str
+    reason: str
+
+class StudyLogRequest(BaseModel):
+    topic: str
+    hours: float
+    mood: int
+
+@router.post("/feedback")
+async def submit_ai_feedback(req: FeedbackRequest, current_user: dict = Depends(get_optional_current_user)):
+    user_id = current_user.get("sub") if current_user else "guest_session"
+    
+    # 🔴 GUEST BLOCKER (Matches your app.py logic)
+    if user_id == "guest_session":
+        raise HTTPException(status_code=403, detail="Guest users cannot train the AI. Please login.")
+        
+    try:
+        supabase.table("ai_training_logs").insert({
+            "user_id": user_id,
+            "user_query": req.query,
+            "ai_response": req.response,
+            "topic_tag": req.reason,
+            "timestamp": datetime.datetime.now().isoformat()
+        }).execute()
+        return {"status": "success", "message": "Feedback securely logged!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/study-session")
+async def log_study_session(req: StudyLogRequest, current_user: dict = Depends(get_optional_current_user)):
+    user_id = current_user.get("sub") if current_user else "guest_session"
+    
+    if user_id == "guest_session":
+        raise HTTPException(status_code=403, detail="Guest users cannot save to the database.")
+        
+    try:
+        supabase.table("study_sessions").insert({
+            "user_id": user_id,
+            "topic": req.topic,
+            "hours": req.hours,
+            "mood": req.mood,
+            "timestamp": datetime.datetime.now().isoformat()
+        }).execute()
+        return {"status": "success", "message": "Logged! Your AI profile is now updated."}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

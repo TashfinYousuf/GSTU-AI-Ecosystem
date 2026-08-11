@@ -609,3 +609,29 @@ async def api_generate_genz_features(req: GenZFeatureRequest):
         raise HTTPException(status_code=500, detail=result["message"])
         
     return result
+
+
+# ==========================================
+# 8. FASTAPI ENDPOINTS (API EXPOSURE)
+# ==========================================
+class PowerupRequest(BaseModel):
+    topic: str
+    task_type: Optional[str] = None
+    feature_type: Optional[str] = None
+    extra_data: Optional[dict] = None
+
+@router.post("/research")
+async def api_research(req: PowerupRequest):
+    """Scholar Hub: Research Gap & Lit Review Endpoint"""
+    res = generate_research_assistance(req.topic, req.task_type)
+    if res["status"] == "error":
+        raise HTTPException(status_code=500, detail=res.get("message"))
+    return res
+
+@router.post("/gamify")
+async def api_gamify(req: PowerupRequest):
+    """Study Hub: Flashcards, Predictor & Debate Endpoint"""
+    res = generate_genz_features(req.topic, req.feature_type, req.extra_data)
+    if res["status"] == "error":
+        raise HTTPException(status_code=500, detail=res.get("message"))
+    return res

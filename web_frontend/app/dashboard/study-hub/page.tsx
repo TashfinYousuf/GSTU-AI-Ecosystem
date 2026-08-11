@@ -2,10 +2,36 @@
 
 import { useState, useEffect } from "react";
 import { Gamepad2, Star, Flame, CheckCircle, XCircle, ArrowRight, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2 } from "lucide-react";
-import { fetchAPI } from "../../utils/api"; // 🔴 Import fetchAPI
+import { fetchAPI } from "../../utils/api";
+import { createClient } from "../../utils/supabase/client";
 
 export default function InteractiveStudyHubPage() {
+  const [activeModal, setActiveModal] = useState<"routine" | "debate" | "assessment" | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [userRole, setUserRole] = useState("student");
+
+  const ADMIN_OVERRIDE_EMAIL = "yousufaltashfin@gmail.com";
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+
+  useEffect(() => {
+    const checkAccess = async () => {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const role = session.user.user_metadata?.role || "student";
+        const email = session.user.email?.toLowerCase() || "";
+        setUserRole(role);
+        if (role === "faculty" && email !== ADMIN_OVERRIDE_EMAIL) setIsBlocked(true);
+      }
+      setIsCheckingAccess(false);
+    };
+    checkAccess();
+  }, []);
+
+
   const [activeTab, setActiveTab] = useState("flashcards");
+
   // 🔴 Predictor State
   const [courseCode, setCourseCode] = useState("");
   const [isPredicting, setIsPredicting] = useState(false);
@@ -15,7 +41,14 @@ export default function InteractiveStudyHubPage() {
   const [debateStance, setDebateStance] = useState("");
   const [aiPersona, setAiPersona] = useState("Aggressive Realist");
   const [isDebating, setIsDebating] = useState(false);
+  
+  const [debateDuration, setDebateDuration] = useState(5); 
+  const [timeLeft, setTimeLeft] = useState<number | null>(null); 
+  const [debateHistory, setDebateHistory] = useState<any[]>([]); 
+  const [judgeVerdict, setJudgeVerdict] = useState<any>(null);
   const [debateResponse, setDebateResponse] = useState("");
+  const [arenaStarted, setArenaStarted] = useState(false);
+  
   
   // 🔴 Dynamic Gamification States
   const [xp, setXp] = useState(0);
@@ -88,24 +121,6 @@ export default function InteractiveStudyHubPage() {
     }
   };
 
-  // 🔴 3. DYNAMIC DEBATE ARENA
-  const handleStartDebate = async () => {
-    setIsDebating(true);
-    try {
-      const res = await fetchAPI("/study/gamify", {
-        method: "POST",
-        body: JSON.stringify({ topic: debateStance, feature_type: "debate", extra_data: { persona: aiPersona } })
-      });
-      if (res.data) {
-        setDebateResponse(res.data); // AI's counter argument
-      }
-    } catch (error) {
-      alert("Failed to initialize debate.");
-    } finally {
-      setIsDebating(false);
-    }
-  };
-
   // Fetch Initial Gamification Data
   useEffect(() => {
     async function loadGamification() {
@@ -131,12 +146,17 @@ export default function InteractiveStudyHubPage() {
   };
 
   const handleAnswerSubmit = (opt: string) => {
-    setSelectedAnswer(opt);
-    const correct = opt === cards[currentIndex].ans;
-    setIsCorrect(correct);
-    if (correct) { setXp(prev => prev + 5); } 
-    else { setStreak(0); }
-  };
+      setSelectedAnswer(opt);
+      const correct = opt === cards[currentIndex].ans;
+      setIsCorrect(correct);
+      const delta = correct ? 5 : -1.5;
+      setXp(prev => Math.max(0, prev + delta));  // local update, unchanged UX
+      if (!correct) setStreak(0);
+      // 🔴 actually persist it
+      fetchAPI(`/study/xp?amount=${delta}`, { method: "POST" }).catch(err =>
+        console.error("Failed to persist XP:", err)
+      );
+    };
 
   const nextCard = () => {
     setCurrentIndex(prev => prev + 1);
@@ -144,8 +164,105 @@ export default function InteractiveStudyHubPage() {
     setIsCorrect(null);
   };
 
+  // ==========================================
+  // ⏱️ TIMER LOGIC
+  // ==========================================
+  useEffect(() => {
+    if (timeLeft === null || timeLeft <= 0 || judgeVerdict) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft, judgeVerdict]);
+
+  // ==========================================
+  // ⚔️ START/SEND ARGUMENT LOGIC
+  // ==========================================
+  const handleStartDebate = async () => {
+    if (!debateStance.trim()) return;
+
+    // 1. Update UI instantly with User's message
+    const currentInput = debateStance;
+    const newHistory = [...debateHistory, { role: "User", content: currentInput }];
+    
+    setDebateHistory(newHistory);
+    setDebateStance(""); // Clear input box
+    setIsDebating(true); // Start loading spinner
+
+    try {
+      // 2. Call the API (Make sure endpoint matches your backend)
+      const res = await fetchAPI("/powerups/gamify", {
+        method: "POST",
+        body: JSON.stringify({ 
+          topic: currentInput, 
+          feature_type: "debate", 
+          extra_data: { persona: aiPersona, history: newHistory } 
+        })
+      });
+
+      if (res?.data) {
+        // 3. Update UI with AI Response
+        const aiResponseText = res.data.ai_response || res.data;
+        setDebateHistory(prev => [...prev, { role: "AI", content: aiResponseText }]);
+      } else {
+        alert("Failed to get AI response.");
+      }
+    } catch (error) {
+      console.error("Debate Error:", error);
+      alert("Network error during debate.");
+    } finally {
+      setIsDebating(false);
+    }
+  };
+
+  // ==========================================
+  // ⚖️ SUMMON JUDGE AI LOGIC
+  // ==========================================
+  const handleSummonJudge = async () => {
+    if (debateHistory.length === 0) {
+      alert("No debate history to judge!");
+      return;
+    }
+    
+    setIsDebating(true); // Reusing loading state for the button
+    try {
+      // Format transcript for the Judge AI
+      const transcript = debateHistory.map((m) => `${m.role}: ${m.content}`).join("\n");
+      
+      const res = await fetchAPI("/powerups/gamify", {
+        method: "POST",
+        body: JSON.stringify({ 
+          topic: "Evaluate this debate", 
+          feature_type: "judge", 
+          extra_data: { transcript: transcript } 
+        })
+      });
+
+      if (res?.data) {
+        setJudgeVerdict(res.data);
+      } else {
+        alert("⚠️ Judge AI failed to evaluate. Try again.");
+      }
+    } catch (error) {
+      console.error("Judge API Error:", error);
+      alert("⚠️ Network Error while summoning the Judge.");
+    } finally {
+      setIsDebating(false);
+    }
+  };
+  
+  if (isCheckingAccess) return null;
+  if (isBlocked) {
+    return (
+      <div className="min-h-screen bg-[#121212] flex flex-col items-center justify-center text-gray-400">
+        <ShieldAlert className="w-12 h-12 mb-4 opacity-40" />
+        <p>Interactive Study Hub is a student-only module.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
+    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar pt-16 md:pt-0">
       
       {/* Header & Badges */}
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -284,32 +401,91 @@ export default function InteractiveStudyHubPage() {
           {activeTab === "debate" && (
             <div className="bg-[#2a1215]/40 border border-indigo-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Swords className="w-5 h-5 text-indigo-400"/> AI Debate Arena</h3>
-              <p className="text-sm text-gray-400 mb-6">Challenge the AI on any geopolitical topic. An unbiased AI Judge will score your factual accuracy.</p>
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Debate Topic / Your Stance</label>
-                  <textarea value={debateStance} onChange={(e) => setDebateStance(e.target.value)} rows={3} placeholder="e.g., Sanctions are ineffective in modern geopolitics because..." className="w-full bg-[#1a0b0d] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 resize-none"></textarea>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">AI Persona</label>
-                  <select value={aiPersona} onChange={(e) => setAiPersona(e.target.value)} className="w-full bg-[#1a0b0d] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none">
-                    <option value="Aggressive Realist">Aggressive Realist</option>
-                    <option value="Liberal Institutionalist">Liberal Institutionalist</option>
-                    <option value="Marxist Scholar">Marxist Scholar</option>
-                  </select>
-                </div>
-                <button onClick={handleStartDebate} disabled={!debateStance || isDebating} className="w-full bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-colors shadow-lg mt-2">
-                  {isDebating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Enter Arena 🥊"}
-                </button>
-
-                {/* 🔴 AI Response Box */}
-                {debateResponse && (
-                  <div className="mt-6 p-5 bg-[#171717] border border-rose-500/30 rounded-xl">
-                    <span className="text-xs font-bold text-rose-500 uppercase tracking-wider mb-2 block">{aiPersona} Strikes Back:</span>
-                    <p className="text-gray-200 text-sm leading-relaxed">{debateResponse}</p>
+              <p className="text-sm text-gray-400 mb-6">Challenge the AI on geopolitics. An unbiased AI Judge will score your factual accuracy.</p>
+              
+              {!arenaStarted && !judgeVerdict ? (
+                // --- 1. INITIALIZE ARENA ---
+                <div className="space-y-5 max-w-lg mx-auto bg-[#1a0b0d] p-8 rounded-2xl border border-white/5">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">⏱️ Select Duration</label>
+                    <select value={debateDuration} onChange={(e) => setDebateDuration(Number(e.target.value))} className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none">
+                      <option value={5}>5 Minutes</option>
+                      <option value={10}>10 Minutes</option>
+                      <option value={15}>15 Minutes</option>
+                    </select>
                   </div>
-                )}
-              </div>
+                  <button onClick={() => { setArenaStarted(true); setTimeLeft(debateDuration * 60); setDebateHistory([]); setJudgeVerdict(null); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg mt-2">
+                    Initialize Debate Arena 🥊
+                  </button>
+                </div>
+              ) : (
+                // --- 2. ACTIVE DEBATE & TIMER ---
+                <div className="space-y-6">
+                  {/* Timer Header */}
+                  {!judgeVerdict && (
+                    <div className="flex justify-between items-center bg-[#1a0b0d] p-4 rounded-xl border border-white/5">
+                      <h3 className={`text-2xl font-bold ${timeLeft! < 60 ? 'text-rose-500 animate-pulse' : 'text-white'}`}>
+                        ⏱️ {Math.floor(timeLeft! / 60)}:{(timeLeft! % 60).toString().padStart(2, '0')}
+                      </h3>
+                      <button onClick={() => setTimeLeft(0)} className="px-4 py-2 bg-rose-600/20 text-rose-400 rounded-lg text-sm font-bold hover:bg-rose-600/40">
+                        End Early 🛑
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Chat History */}
+                  <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar p-2">
+                    {debateHistory.map((msg, i) => (
+                      <div key={i} className={`p-4 rounded-xl border ${msg.role === 'User' ? 'bg-indigo-500/10 border-indigo-500/20 ml-auto max-w-[80%]' : 'bg-[#171717] border-white/10 mr-auto max-w-[80%]'}`}>
+                        <span className={`text-[11px] font-bold uppercase block mb-1 ${msg.role === 'User' ? 'text-indigo-400' : 'text-gray-400'}`}>{msg.role}:</span>
+                        <p className="text-gray-200 text-[15px]">{msg.content}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Time's Up / Judge Summoning */}
+                  {timeLeft === 0 && !judgeVerdict ? (
+                    <div className="text-center p-6 border border-amber-500/30 bg-amber-500/10 rounded-2xl">
+                      <h3 className="text-xl font-bold text-amber-400 mb-4">⏳ Time's Up!</h3>
+                      <button onClick={handleSummonJudge} disabled={isDebating} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+                        {isDebating ? "Analyzing Facts..." : "Summon Judge AI for Verdict ⚖️"}
+                      </button>
+                    </div>
+                  ) : !judgeVerdict ? (
+                    // Input Box
+                    <div className="flex gap-3">
+                      <input type="text" value={debateStance} onChange={(e) => setDebateStance(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleStartDebate()} placeholder="Type your argument..." className="flex-1 bg-[#1a0b0d] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:border-indigo-500" />
+                      <button onClick={handleStartDebate} disabled={!debateStance || isDebating} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 rounded-xl font-bold disabled:opacity-50">
+                        Send 💬
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* Judge Verdict Results */}
+                  {judgeVerdict && (
+                    <div className="bg-[#171717] border border-emerald-500/30 p-8 rounded-3xl animate-in slide-in-from-bottom-4 shadow-2xl">
+                      <h3 className="text-2xl font-bold text-center text-emerald-400 mb-6">🏆 WINNER: {judgeVerdict.winner}</h3>
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="text-center p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                          <p className="text-3xl font-black text-indigo-400">{judgeVerdict.user_score}</p>
+                          <p className="text-xs uppercase font-bold text-gray-400 mt-1">Your Score</p>
+                        </div>
+                        <div className="text-center p-4 bg-gray-800 border border-white/10 rounded-xl">
+                          <p className="text-3xl font-black text-gray-300">{judgeVerdict.ai_score}</p>
+                          <p className="text-xs uppercase font-bold text-gray-400 mt-1">AI Score</p>
+                        </div>
+                      </div>
+                      <div className="bg-[#0a0a0a] p-5 rounded-xl border border-white/5">
+                        <p className="text-amber-400 font-bold mb-2 flex items-center gap-2">⚖️ Judge Summary:</p>
+                        <p className="text-gray-300 text-[14.5px] leading-relaxed">{judgeVerdict.verdict_summary}</p>
+                      </div>
+                      <button onClick={() => { setArenaStarted(false); setJudgeVerdict(null); setDebateHistory([]); setTimeLeft(null); }} className="w-full mt-6 bg-white/10 hover:bg-white/20 text-white font-bold py-3 rounded-xl transition-colors">
+                        Start New Debate 🔄
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -345,7 +521,7 @@ export default function InteractiveStudyHubPage() {
           {/* Avatar Motivation */}
           <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl p-6 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl"></div>
-            <h3 className="text-sm font-bold text-white-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-indigo-400" /> Mr. Atlas (AI Mentor)
             </h3>
             <div className="flex items-start gap-4">
@@ -392,12 +568,9 @@ export default function InteractiveStudyHubPage() {
                 </div>
                 <span className="font-bold text-gray-400 text-sm">{xp} XP</span>
               </div>
-
             </div>
           </div>
-
         </div>
-
       </div>
     </div>
   );

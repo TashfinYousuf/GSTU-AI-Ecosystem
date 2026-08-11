@@ -1,0 +1,40 @@
+# ==========================================
+# GSTU IR AI Ecosystem - Backend Requirements
+# ==========================================
+
+# --- Core Web Framework ---
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+pydantic==2.6.3
+python-multipart==0.0.9      # For File Uploads & Form Data in FastAPI
+python-dotenv==1.0.1         # For loading .env variables
+
+# --- Database & Authentication ---
+supabase==2.3.4              # Supabase Python Client
+
+# --- Main AI / LLM Providers ---
+groq==0.4.2                  # Groq API (Llama-3)
+google-genai==0.3.0          # New Google Gemini SDK
+
+# --- LangChain Ecosystem (RAG, Embeddings, Agents) ---
+langchain==0.1.12
+langchain-core==0.1.32
+langchain-community==0.0.28
+langchain-google-genai==0.0.10
+langchain-pinecone==0.0.3
+
+# --- Vector Database ---
+pinecone-client==3.2.2       # Pinecone Vector DB for RAG
+
+# --- Search Tools & APIs ---
+tavily-python==0.3.3         # Tavily Live Web Search
+
+# --- Document Processing & Text Extraction ---
+pypdf==4.1.0                 # For reading and chunking uploaded PDFs
+
+# --- Data Analytics & Mathematics ---
+pandas==2.2.1                # For processing AI Training Logs & Study Sessions
+numpy==1.26.4                # Dependency for pandas
+
+# --- Security & Rate Limiting ---
+slowapi==0.1.9               # Anti-DDoS and API Rate Limiting

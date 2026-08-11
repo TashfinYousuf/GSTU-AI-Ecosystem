@@ -198,6 +198,19 @@ export default function Home() {
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center p-6 max-w-4xl mx-auto space-y-8 my-auto">
               
+              {/* Quick Action Shortcuts */}
+              <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
+                  <Calendar className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" /> Smart Routine
+                </button>
+                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
+                  <CheckSquare className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" /> Mock Exam
+                </button>
+                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
+                  <Building2 className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" /> Dept Hub
+                </button>
+              </div>
+
               {/* Centered Welcome */}
               <div className="text-center space-y-2">
                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
@@ -232,20 +245,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-
-              {/* Quick Action Shortcuts */}
-              <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
-                  <Calendar className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" /> Smart Routine
-                </button>
-                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
-                  <CheckSquare className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" /> Mock Exam
-                </button>
-                <button className="flex items-center gap-3 p-3.5 bg-[#0A0E17] hover:bg-[#121826] border border-slate-800 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-all text-left group">
-                  <Building2 className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" /> Dept Hub
-                </button>
-              </div>
-
             </div>
           ) : (
             <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto mt-4">

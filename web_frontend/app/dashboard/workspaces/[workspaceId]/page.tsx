@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, use } from "react";
-import { ArrowUp, Paperclip, Database, Globe, Activity, BrainCircuit, Loader2, FileText, X, Trash2, Lock, Sparkles, Brain, PenTool, CheckSquare, Clock, Network, Bell, Mic, MicOff, Zap, ChevronDown, TrendingUp, BookOpen, Target } from "lucide-react";
+import rehypeRaw from "rehype-raw";
+import { ArrowUp, Paperclip, Database, Globe, Activity, BrainCircuit, Loader2, Lock, Crown, X, FileText, Trash2, Sparkles, Brain, PenTool, CheckSquare, Clock, Network, Bell, Mic, MicOff, Zap, ChevronDown, AlertCircle, Volume2, Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, TrendingUp, BookOpen, Target } from "lucide-react";
 import { createClient } from "../../../utils/supabase/client";
 import dynamic from 'next/dynamic';
-import { use as usePromise } from "react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { fetchAPI } from "../../../utils/api";
@@ -28,9 +28,33 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   const [isKbOpen, setIsKbOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
+  const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
+
   const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 🔴 1-argument Smart TTS Function
+  const handleTTS = (text: string) => {
+      if (window.speechSynthesis.speaking) { window.speechSynthesis.cancel(); return; }
+      const cleanText = text.replace(/<[^>]+>/g, '').replace(/[*#_~`]+/g, '');
+      
+      // Auto-detect Bengali instantly!
+      const isBn = /[\u0980-\u09FF]/.test(cleanText);
+      
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = isBn ? 'bn-BD' : 'en-US';
+      window.speechSynthesis.speak(utterance);
+  };
+
+  const handleCopy = (text: string) => {
+      const cleanText = text.replace(/<[^>]+>/g, '').replace(/[*#_~`]+/g, '');
+      navigator.clipboard.writeText(cleanText);
+      alert("Copied to clipboard!");
+  };
+
+  const handleShare = () => {
+      if (navigator.share) navigator.share({ url: window.location.href, title: "GSTU AI Chat" });
+  };
+
 
   // 🔴 FIX: was duplicated as two separate, identical useEffects. One is enough.
   useEffect(() => {
@@ -130,7 +154,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ workspace_id: workspaceId, message: userMessage.content }),
+        body: JSON.stringify({ workspace_id: workspaceId, message: userMessage.content, model: selectedModel.id }),
       });
 
       if (!res.ok || !res.body) throw new Error("Stream blocked (404/401) or failed to start");
@@ -165,6 +189,8 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] } | null>(null);
   const [isGraphOpen, setIsGraphOpen] = useState(false);
   const [graphTopic, setGraphTopic] = useState("");
+  const [feedbackModal, setFeedbackModal] = useState<{isOpen: boolean, msgId: string, query: string, response: string}>({isOpen: false, msgId: "", query: "", response: ""});
+  const [feedbackReason, setFeedbackReason] = useState("");
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -203,6 +229,28 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
       setIsTyping(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
+
+  // Reset textarea height after message send
+  useEffect(() => {
+    if (input === "" && textareaRef.current) {
+      textareaRef.current.style.height = "44px";
+    }
+  }, [input]);
+
+  const handleInputResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    const maxHeight = 200;
+    e.target.style.height = `${Math.min(e.target.scrollHeight, maxHeight)}px`;
   };
 
   const handleDeleteDoc = async (docId: string) => {
@@ -323,6 +371,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
       setIsListening(true);
     }
   };
+  
 
   return (
     <div className="flex flex-col h-screen bg-[#212121] font-sans text-gray-200 overflow-hidden w-full">
@@ -347,48 +396,169 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto w-full px-4 pt-8 pb-6 custom-scrollbar">
-        <div className="max-w-3xl mx-auto w-full flex flex-col space-y-8 min-h-full justify-end">
+      {/* =========================================================
+         CHAT MESSAGE AREA — PREMIUM CHATGPT / CLAUDE STYLE
+      ========================================================= */}
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth custom-scrollbar pb-32">
+        <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
 
+          {/* Empty State */}
           {messages.length === 0 && !isTyping && (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500 pb-20">
-              <Brain className="w-12 h-12 mb-4 opacity-50 text-gray-400" />
-              <p className="text-[15px] font-medium text-gray-400">How can I help you with your academic tasks today?</p>
+            <div className="flex min-h-[55vh] flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-4">
+              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] shadow-xl">
+                <Brain className="h-8 w-8 text-indigo-500" />
+              </div>
+              <h2 className="text-[24px] font-medium tracking-[-0.02em] text-gray-200">
+                How can I help you today?
+              </h2>
+              <p className="mt-3 max-w-md text-[15px] leading-6 text-gray-500">
+                Ask anything about your courses, assignments, research, exams or academic tasks.
+              </p>
             </div>
           )}
 
-          {messages.map((msg) => (
-            <div key={msg.id} className="flex flex-col w-full group">
-              <span className="text-[13px] font-semibold text-gray-400 mb-2 ml-1">{msg.role === "user" ? "You" : "GSTU Assistant"}</span>
-              <div className={`text-[16px] leading-[1.75] tracking-wide wrap-break-word ${msg.role === "user" ? "bg-[#2f2f2f] px-5 py-3.5 rounded-3xl w-fit max-w-[85%] text-gray-100 shadow-sm" : "text-gray-200 px-2 w-full"}`}>
-                {msg.role === "user" ? msg.content : (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                    p: ({ node, ...props }) => <p className="mb-4 last:mb-0" {...props} />,
-                    strong: ({ node, ...props }) => <strong className="font-semibold text-white" {...props} />,
-                    ul: ({ node, ...props }) => <ul className="list-disc pl-6 mb-4 space-y-1.5 marker:text-gray-400" {...props} />,
-                    ol: ({ node, ...props }) => <ol className="list-decimal pl-6 mb-4 space-y-1.5 marker:text-gray-400" {...props} />,
-                    code: ({ node, inline, ...props }: any) => inline ? <code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded-md text-[14px] font-mono" {...props} /> : <div className="bg-[#1e1e1e] border border-white/10 rounded-xl my-5 overflow-hidden"><pre className="p-4 overflow-x-auto text-[14.5px] text-gray-300 font-mono"><code {...props} /></pre></div>
-                  }}>
-                    {msg.content}
-                  </ReactMarkdown>
-                )}
-              </div>
-            </div>
-          ))}
+          {/* Messages */}
+          <div className="space-y-8 sm:space-y-10">
+            {messages.map((msg, i) => {
+              const isUser = msg.role === "user";
+              const previousUserMessage = [...messages].slice(0, i).reverse().find((m) => m.role === "user");
 
-          {isTyping && messages[messages.length - 1]?.content === "" && (
-            <div className="flex flex-col w-full">
-              <span className="text-[13px] font-semibold text-gray-400 mb-2 ml-1">GSTU Assistant</span>
-              <div className="flex items-center gap-1.5 px-4 py-2 mt-1">
-                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" />
+              return (
+                <div key={i} className={`group w-full flex ${isUser ? "justify-end" : "justify-start"}`}>
+                  
+                  {/* =====================================================
+                     USER MESSAGE (Bubble)
+                  ====================================================== */}
+                  {isUser ? (
+                    <div className="flex max-w-[88%] flex-col items-end sm:max-w-[78%]">
+                      <div className="rounded-[24px] rounded-br-[8px] bg-[#2f2f2f] px-5 py-3.5 text-[15.5px] leading-7 tracking-[-0.005em] text-gray-100 shadow-sm break-words whitespace-pre-wrap">
+                        {msg.content}
+                      </div>
+                    </div>
+                  ) : (
+
+                  /* =====================================================
+                     ASSISTANT MESSAGE (Open Canvas)
+                  ====================================================== */
+                    <div className="w-full max-w-3xl">
+                      {/* Assistant Identity */}
+                      <div className="mb-2.5 flex items-center gap-2">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-indigo-500/30 bg-indigo-500/10">
+                          <Brain className="h-4 w-4 text-indigo-400" />
+                        </div>
+                        <span className="text-[13px] font-bold tracking-wide text-gray-400">GSTU Assistant</span>
+                      </div>
+
+                      {/* Assistant Response (Markdown) */}
+                      <div className="prose prose-invert max-w-none text-[15.5px] leading-[1.78] tracking-[-0.003em] text-gray-200">
+                        {msg.content ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeRaw]}
+                            components={{
+                              p: ({ node, ...props }) => <p className="mb-5 last:mb-0 text-[15.5px] leading-[1.8] text-gray-200" {...props} />,
+                              strong: ({ node, ...props }) => <strong className="font-semibold text-gray-100" {...props} />,
+                              em: ({ node, ...props }) => <em className="text-gray-300" {...props} />,
+                              h1: ({ node, ...props }) => <h1 className="mb-5 mt-7 text-[24px] font-semibold tracking-[-0.025em] text-gray-100 first:mt-0" {...props} />,
+                              h2: ({ node, ...props }) => <h2 className="mb-4 mt-7 text-[20px] font-semibold tracking-[-0.02em] text-gray-100 first:mt-0" {...props} />,
+                              h3: ({ node, ...props }) => <h3 className="mb-3 mt-6 text-[17px] font-semibold text-gray-100 first:mt-0" {...props} />,
+                              ul: ({ node, ...props }) => <ul className="mb-5 ml-1 list-disc space-y-2 pl-6 text-gray-200" {...props} />,
+                              ol: ({ node, ...props }) => <ol className="mb-5 ml-1 list-decimal space-y-2 pl-6 text-gray-200" {...props} />,
+                              li: ({ node, ...props }) => <li className="pl-1 leading-[1.75]" {...props} />,
+                              blockquote: ({ node, ...props }) => <blockquote className="my-5 border-l-2 border-indigo-500/50 pl-4 italic text-gray-400 bg-indigo-500/5 py-2 pr-4 rounded-r-lg" {...props} />,
+                              a: ({ node, ...props }) => <a className="text-indigo-400 underline decoration-indigo-400/30 underline-offset-4 transition-colors hover:text-indigo-300" target="_blank" rel="noopener noreferrer" {...props} />,
+                              code: ({ node, inline, className, children, ...props }: any) => {
+                                if (inline) return <code className="rounded-md border border-white/10 bg-white/[0.07] px-1.5 py-0.5 font-mono text-[13px] text-indigo-300" {...props}>{children}</code>;
+                                return (
+                                  <div className="my-5 overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0a]">
+                                    <div className="flex h-9 items-center border-b border-white/[0.06] bg-white/[0.025] px-3">
+                                      <div className="flex gap-1.5">
+                                        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                                        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                                        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                                      </div>
+                                    </div>
+                                    <pre className="overflow-x-auto p-4 text-[13.5px] leading-6 text-gray-300"><code className={className} {...props}>{children}</code></pre>
+                                  </div>
+                                );
+                              },
+                              table: ({ node, ...props }) => <div className="my-5 overflow-x-auto rounded-xl border border-white/10"><table className="w-full border-collapse text-[14px]" {...props} /></div>,
+                              th: ({ node, ...props }) => <th className="border-b border-white/10 bg-white/[0.04] px-4 py-3 text-left font-semibold text-gray-200" {...props} />,
+                              td: ({ node, ...props }) => <td className="border-b border-white/[0.06] px-4 py-3 text-gray-300" {...props} />,
+                              hr: ({ node, ...props }) => <hr className="my-7 border-white/[0.08]" {...props} />,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        ) : (
+                          /* Streaming placeholder */
+                          <div className="flex items-center gap-1.5 py-2">
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500 [animation-delay:150ms]" />
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500 [animation-delay:300ms]" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* =================================================
+                         ASSISTANT ACTION BAR (Hover to Reveal)
+                      ================================================== */}
+                      {msg.content && (
+                        <div className="mt-3 flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
+                          <button onClick={() => handleCopy(msg.content)} className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-gray-200" title="Copy">
+                            <Copy className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => handleTTS(msg.content)} className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-gray-200" title="Listen">
+                            <Volume2 className="h-4 w-4" />
+                          </button>
+                          <button className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-emerald-400" title="Good response">
+                            <ThumbsUp className="h-4 w-4" />
+                          </button>
+                          <button 
+                            onClick={() => setFeedbackModal({ 
+                              isOpen: true, 
+                              msgId: String(i), /* 🔴 FIX: Number কে String-এ কনভার্ট করা হয়েছে */
+                              query: previousUserMessage?.content || "Unknown", 
+                              response: msg.content 
+                            })} 
+                            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-rose-400" 
+                            title="Bad response"
+                          >
+                            <ThumbsDown className="h-4 w-4" />
+                          </button>
+                          
+                          <button 
+                            onClick={handleShare} /* 🔴 FIX: আর্গুমেন্ট (msg.content) রিমুভ করা হয়েছে */
+                            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-gray-200" 
+                            title="Share"
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* =========================================================
+               TYPING INDICATOR (Subtle)
+            ========================================================== */}
+            {isTyping && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex w-full items-start">
+                <div className="flex items-center gap-1.5 py-2">
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-600 [animation-delay:-0.3s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-600 [animation-delay:-0.15s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-600" />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
           <div ref={messagesEndRef} />
         </div>
       </div>
+
 
       <div className="shrink-0 w-full bg-[#212121] pt-2 pb-6 px-4 z-20">
         <div className="max-w-3xl mx-auto w-full">
@@ -406,13 +576,20 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
             </div>
 
             <textarea
+              ref={textareaRef}
               disabled={isTyping}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e as any); } }}
+              onChange={handleInputResize}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim()) handleSendMessage(e as any);
+                }
+              }}
               placeholder={isTyping ? "Generating response..." : "Message GSTU Assistant..."}
-              className={`flex-1 bg-transparent py-2.5 px-3 text-gray-100 placeholder-gray-500 focus:outline-none resize-none max-h-40 min-h-11 text-[15.5px] leading-relaxed self-center ${isTyping ? "cursor-not-allowed" : ""}`}
               rows={1}
+              className="min-h-[44px] max-h-[200px] flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2.5 text-[15.5px] leading-6 text-gray-100 placeholder:text-gray-500 focus:outline-none custom-scrollbar disabled:opacity-50"
+              style={{ height: "44px" }}
             />
 
             <div className="flex items-center gap-2 mb-1 mr-1 shrink-0 relative">
@@ -434,7 +611,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
 
                   <div className="overflow-y-auto custom-scrollbar flex-1 py-2">
                     {[
-                      { id: "llama-4-scout-17b-16e-instruct", name: "Fast Engine (Llama 4)", icon: <Zap className="w-4 h-4 text-amber-400" />, isPremium: false },
+                      { id: "openai/gpt-oss-120b", name: "Fast Engine (OpenAI GPT)", icon: <Zap className="w-4 h-4 text-amber-400" />, isPremium: false },
                       { id: "local-gpt4all", name: "Offline Mode (GPT4All)", icon: <Database className="w-4 h-4 text-gray-400" />, isPremium: false },
                       { id: "gemini-2.5-flash", name: "Web Search (Gemini 2.5)", icon: <Globe className="w-4 h-4 text-emerald-400" />, isPremium: false },
                       { id: "deepseek-r1:free", name: "DeepSeek R1 (Free)", icon: <Activity className="w-4 h-4 text-cyan-400" />, isPremium: false },
@@ -492,9 +669,49 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               >
                 {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
               </button>
+
+              {feedbackModal.isOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                  <div className="bg-[#171717] border border-white/10 p-6 rounded-2xl max-w-md w-full shadow-2xl">
+                    <h3 className="text-lg font-bold text-white mb-2">🧠 Help GSTU AI Learn</h3>
+                    <p className="text-xs text-gray-400 mb-4">Please explain the reason you dislike this response.</p>
+                    
+                    <textarea 
+                      value={feedbackReason} 
+                      onChange={e => setFeedbackReason(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3 text-sm text-gray-300 focus:border-indigo-500 outline-none min-h-[100px] mb-4"
+                      placeholder="e.g., The geopolitical facts were outdated..."
+                    />
+                    
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => setFeedbackModal({isOpen: false, msgId: "", query: "", response: ""})} className="text-xs font-bold text-gray-400 hover:text-white px-4">Cancel</button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await fetchAPI("/logger/feedback", {
+                              method: "POST",
+                              body: JSON.stringify({ query: feedbackModal.query, response: feedbackModal.response, reason: feedbackReason })
+                            });
+                            alert("✅ Feedback securely logged! The GSTU AI routing engine will adjust future responses.");
+                            setFeedbackModal({isOpen: false, msgId: "", query: "", response: ""});
+                          } catch (err: any) {
+                            alert(err.message || "Failed to submit feedback.");
+                          }
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg transition-colors"
+                      >
+                        Submit Feedback to Core
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </form>
         </div>
+        <p className="mt-3 text-center text-[12px] text-gray-500 font-medium tracking-wide">
+            GSTU Assistant can make mistakes. Verify important academic information.
+          </p>
       </div>
     </div>
   );

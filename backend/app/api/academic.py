@@ -155,6 +155,7 @@ async def generate_academic_content(
     except Exception as e:
         raise HTTPException(status_code=500, detail="Generation failed.")
 
+
 @router.post("/notice")
 async def generate_notice(
     request: NoticeRequest,
@@ -193,8 +194,8 @@ Please format strictly as follows:
 @router.get("/analytics/{user_id}")
 def get_student_analytics(user_id: str, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """স্টুডেন্টদের ড্যাশবোর্ডের জন্য ডাটাবেস থেকে রিয়েল-টাইম ডেটা"""
-    if not current_user.get("sub"):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user_id != current_user.get("sub") and current_user.get("user_metadata", {}).get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to view this user's analytics.")
         
     try:
         # 🔴 SQLAlchemy Query: Fetch actual message count for this user
@@ -204,8 +205,8 @@ def get_student_analytics(user_id: str, db: Session = Depends(get_db), current_u
         workspaces_res = supabase.table("workspaces").select("id").eq("user_id", user_id).execute()
         workspace_ids = [w["id"] for w in (workspaces_res.data or [])]
 
-        total_queries = supabase.table("messages").select("*", count="exact").in_("workspace_id", workspace_ids).execute()
-
+        total_queries = supabase.table("messages").select("*", count="exact").in_("workspace_id", workspace_ids).execute().count or 0
+  
         # 🔴 Dynamic Calculation based on real usage
         hours_saved = round((total_queries * 15) / 60, 1)
         retention = min(15 + (total_queries * 2), 85)

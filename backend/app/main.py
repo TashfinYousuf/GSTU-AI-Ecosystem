@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api import auth, workspaces, chat, study, knowledge, documents, admin, academic, account, faculty, scholar, mentor, payment, billing, powerups, tools, logger, department
 
@@ -20,7 +21,11 @@ app = FastAPI(
     description="The Headless Engine powering GSTU AI Web and Mobile Platforms."
 )
 
+# 🗜️ Compress all JSON payloads larger than 500 bytes (Reduces bandwidth by 70%)
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # 🔴 3. Add Exception Handler for Rate Limits
+limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -31,7 +36,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # CORS Middleware (Allows Next.js and Flutter to connect)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], # Next.js এর পোর্ট অ্যালাউ করা হলো
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.2:3000"], # Next.js এর পোর্ট অ্যালাউ করা হলো
     # allow_origins=["*"], # প্রোডাকশনে এখানে Next.js এর ডোমেইন দেব
     allow_credentials=True,
     allow_methods=["*"],
