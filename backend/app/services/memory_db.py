@@ -1,7 +1,6 @@
 import os
 import logging
 import datetime
-import streamlit as st
 from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 
@@ -20,8 +19,6 @@ def get_secret(key):
         val = os.getenv(key)
         if val:
             return val
-        # Then check Streamlit secrets (Streamlit Cloud)
-        return st.secrets.get(key)
     except Exception:
         return None
 
@@ -34,8 +31,6 @@ supabase: Client | None = None
 # Safeguard 1: Missing Keys (Shows professional maintenance message to users)
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.error("CRITICAL: Missing Supabase URL or Key in environment/secrets.")
-    st.error("🔧 **System Update in Progress:** We are configuring our secure servers for a better experience. Please check back in a few minutes.")
-    st.stop()
 
 # Safeguard 2: Connection Failure Protection & OAuth Fix
 try:
@@ -48,8 +43,6 @@ try:
     )
 except Exception as e:
     logger.error(f"CRITICAL DB ERROR: {e}")
-    st.error("📡 **Network Alert:** Unable to connect to the central intelligence core. Our tech team has been notified.")
-    st.stop()
 
 
 # ==========================================

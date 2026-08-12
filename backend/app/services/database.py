@@ -1,5 +1,4 @@
 import os
-import streamlit as st
 from supabase import create_client, ClientOptions
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings

@@ -1,7 +1,7 @@
 import { createClient } from "./supabase/client";
 
-// 🔴 Strictly use 127.0.0.1 to avoid browser CORS/Origin blocks locally
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+// 🔴 Update this to your live Render Backend URL
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://gstu-ai-backend.onrender.com/api/v1";
 
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const supabase = createClient();
