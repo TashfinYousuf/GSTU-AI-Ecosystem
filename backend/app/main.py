@@ -1,6 +1,7 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -36,11 +37,19 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.2:3000", "https://gstu-ai-backend.vercel.app/"], # Main domain অ্যালাউ করা হলো
-    # allow_origins=["*"], # প্রোডাকশনে এখানে Next.js এর ডোমেইন দেব
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
+
+# 🔴 FIX 2: Custom OPTIONS By-Pass Guard
+# যদি অন্য কোনো সিস্টেম OPTIONS রিকোয়েস্ট আটকে দেয়, এই মিডলওয়্যার সেটা বাইপাস করে দেবে
+@app.middleware("http")
+async def options_bypass_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return Response(status_code=200) # ডাইরেক্ট 200 OK দিয়ে ব্রাউজারকে শান্ত করবে
+    return await call_next(request)
 
 # 🔴 Production Health Check for Render / Railway
 @app.get("/health")
