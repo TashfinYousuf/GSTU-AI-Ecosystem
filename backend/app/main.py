@@ -43,14 +43,6 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# 🔴 FIX 2: Custom OPTIONS By-Pass Guard
-# যদি অন্য কোনো সিস্টেম OPTIONS রিকোয়েস্ট আটকে দেয়, এই মিডলওয়্যার সেটা বাইপাস করে দেবে
-@app.middleware("http")
-async def options_bypass_middleware(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return Response(status_code=200) # ডাইরেক্ট 200 OK দিয়ে ব্রাউজারকে শান্ত করবে
-    return await call_next(request)
-
 # 🔴 Production Health Check for Render / Railway
 @app.get("/health")
 async def health_check():
