@@ -1,6 +1,6 @@
 import os
 import io
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from langchain_community.document_loaders import PyPDFLoader

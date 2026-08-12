@@ -542,63 +542,6 @@ CRITICAL RULES:
         return {"status": "error", "message": str(e)}
     
 
-# ==========================================================
-# 7. OMNICHANNEL CS AGENT (PHASE 3 - SUPPORT & ESCALATION)
-# ==========================================================
-def process_customer_service(query: str, user_id: str):
-    """
-    Handles administrative queries, app issues, and automated escalation to human admins.
-    """
-    try:
-        llm = get_specialist_llm()
-        
-        system_prompt = """You are the official 'Customer Support & Admin Agent' for GSTU IR Department.
-        Your job is to handle administrative queries, fee issues, app complaints, or routine questions.
-        
-        RULES:
-        1. If it's a general question (e.g., "What are the fees?", "How to use the app?", "Who is the developer?"), provide a polite, helpful answer.
-        2. ESCALATION TRIGGER: If it's a specific payment failure, a bug, a personal complaint, or something requiring human admin intervention (e.g., "My payment of 500 tk failed", "Change my email", "I am facing an error"), you MUST escalate it.
-        3. Respond in the same language as the user input (Bengali or English).
-        
-        Output EXACTLY in this JSON format without markdown ticks:
-        {
-            "status": "answered" OR "escalated",
-            "response": "Your helpful answer OR a polite message saying a support ticket has been created for the Admin.",
-            "escalation_category": "Payment/Technical/Academic/None"
-        }"""
-        
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", f"Student Query: {query}")
-        ])
-        
-        chain = prompt_template | llm
-        res = chain.invoke({})
-        
-        clean_json_str = res.content.strip().replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_json_str)
-        
-        # 🔴 ESCALATION PIPELINE: Save ticket to database if escalated
-        if data.get("status") == "escalated":
-            try:
-                from auth_logic import supabase
-                supabase.table("support_tickets").insert({
-                    "user_id": user_id,
-                    "query": query,
-                    "category": data.get("escalation_category", "General"),
-                    "ticket_status": "open",
-                    "created_at": datetime.datetime.now().isoformat()
-                }).execute()
-            except Exception as db_err:
-                logger.error(f"Failed to create support ticket: {db_err}")
-                
-        return {"status": "success", "data": data}
-        
-    except Exception as e:
-        logger.error(f"CS Agent Error: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-
 def get_llm_engine(model_name: str):
     """
     ফ্রন্টএন্ড থেকে পাঠানো মডেলের নাম অনুযায়ী সঠিক LangChain ইঞ্জিন লোড করবে।
