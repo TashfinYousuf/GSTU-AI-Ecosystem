@@ -1,40 +1,49 @@
 # ==========================================
-# GSTU IR AI Ecosystem - Backend Requirements
+# GSTU AI Backend — Production Stack
+# Python 3.12
 # ==========================================
 
-# --- Core Web Framework ---
-fastapi==0.110.0
-uvicorn[standard]==0.27.1
-pydantic==2.6.3
-python-multipart==0.0.9      # For File Uploads & Form Data in FastAPI
-python-dotenv==1.0.1         # For loading .env variables
+# ---------- Web ----------
+fastapi>=0.115,<1
+uvicorn[standard]>=0.35,<1
+pydantic>=2.10,<3
+python-multipart>=0.0.9,<1
+python-dotenv>=1.0,<2
+httpx>=0.27,<1
 
-# --- Database & Authentication ---
-supabase==2.3.4              # Supabase Python Client
+# ---------- Supabase ----------
+supabase==2.31.0
 
-# --- Main AI / LLM Providers ---
-groq==0.4.2                  # Groq API (Llama-3)
-google-genai==0.3.0          # New Google Gemini SDK
+# ---------- AI Providers ----------
+google-genai==2.13.0
+groq>=0.30,<1
+openai>=1.100,<3
 
-# --- LangChain Ecosystem (RAG, Embeddings, Agents) ---
-langchain==0.1.12
-langchain-core==0.1.32
-langchain-community==0.0.28
-langchain-google-genai
-langchain-pinecone==0.0.3
+# ---------- LangChain v1 Stack ----------
+langchain>=1.2,<2
+langchain-core>=1.4,<2
+langchain-community>=0.4,<1
+langchain-google-genai>=4.2,<5
+langchain-groq>=1.0,<2
+langchain-openai>=1.0,<2
+langgraph>=1.2,<2
+langgraph-prebuilt>=1.1,<2
+langchain-chroma>=1.1,<2
+langchain-pinecone>=0.2,<1
 
-# --- Vector Database ---
-pinecone-client==3.2.2       # Pinecone Vector DB for RAG
+# ---------- Vector ----------
+pinecone>=7,<8
+chromadb>=1,<2
 
-# --- Search Tools & APIs ---
-tavily-python==0.3.3         # Tavily Live Web Search
+# ---------- Search ----------
+tavily-python>=0.7,<1
 
-# --- Document Processing & Text Extraction ---
-pypdf==4.1.0                 # For reading and chunking uploaded PDFs
+# ---------- Documents ----------
+pypdf>=5,<7
 
-# --- Data Analytics & Mathematics ---
-pandas==2.2.1                # For processing AI Training Logs & Study Sessions
-numpy==1.26.4                # Dependency for pandas
+# ---------- Data ----------
+pandas>=2.2,<3
+numpy>=2,<3
 
-# --- Security & Rate Limiting ---
-slowapi==0.1.9               # Anti-DDoS and API Rate Limiting
+# ---------- Security ----------
+slowapi>=0.1.9,<1

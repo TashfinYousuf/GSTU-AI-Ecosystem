@@ -42,6 +42,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🔴 Production Health Check for Render / Railway
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "GSTU AI Backend Engine",
+        "environment": os.getenv("RENDER_SERVICE_ID", "local_development")
+    }
+
+
 app.include_router(academic.router, prefix="/api/v1/academic", tags=["Academic Tools"])
 
 app.include_router(account.router, prefix="/api/v1/account", tags=["Account"])

@@ -525,16 +525,25 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
                 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
                 response = groq_client.chat.completions.create(model=selected_model, messages=[{"role": "user", "content": final_prompt}], stream=True)
 
-            elif selected_model == "local-gpt4all":
-                # 🔴 NEW: actually route to a local server instead of falling through to OpenRouter
-                import httpx
-                async with httpx.AsyncClient(timeout=60) as http_client:
-                    r = await http_client.post("http://localhost:4891/v1/chat/completions", json={
-                        "model": "gpt4all", "messages": [{"role": "user", "content": final_prompt}], "stream": False
-                    })
-                    text = r.json()["choices"][0]["message"]["content"]
-                    full_ai_response += text
-                    yield text
+            # 🔴 Localhost GPT4All Production Guard
+            if selected_model == "local-gpt4all":
+                is_production = os.getenv("RENDER") or os.getenv("VERCEL")
+                if is_production:
+                    # Production-এ স্থানীয় পিসির localhost পাওয়া যাবে না, তাই Gemini-তে অটো ফালব্যাক
+                    selected_model = "gemini-2.5-flash"
+                else:
+                    # Local Environment
+                    try:
+                        llm = openai(
+                            model_name="local-model",
+                            temperature=0.4,
+                            openai_api_key="not-needed",
+                            openai_api_base="http://localhost:4891/v1",
+                            request_timeout=3
+                        )
+                    except Exception:
+                        selected_model = "gemini-2.5-flash"
+
             else:
                 import openai
                 openrouter_key = os.getenv("OPENROUTER_API_KEY")
