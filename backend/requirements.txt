@@ -20,7 +20,7 @@ google-genai==0.3.0          # New Google Gemini SDK
 langchain==0.1.12
 langchain-core==0.1.32
 langchain-community==0.0.28
-langchain-google-genai==0.0.10
+langchain-google-genai
 langchain-pinecone==0.0.3
 
 # --- Vector Database ---
