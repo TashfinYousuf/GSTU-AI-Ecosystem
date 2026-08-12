@@ -36,7 +36,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # CORS Middleware (Allows Next.js and Flutter to connect)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.2:3000", "https://gstu-ai-backend.vercel.app/"], # Main domain অ্যালাউ করা হলো
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.2:3000", "https://gstu-ai-backend.vercel.app"], # Main domain অ্যালাউ করা হলো
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
