@@ -30,7 +30,7 @@ async def analyze_handwritten_note(file: UploadFile = File(...), current_user: d
 
         # Call Gemini Vision (1.5 Flash is natively multimodal)
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         # Upload to Gemini File API
         sample_file = genai.upload_file(path=file_path, display_name="Handwritten Note")

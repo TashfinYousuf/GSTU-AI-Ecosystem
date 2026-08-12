@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Gamepad2, Star, Flame, CheckCircle, XCircle, ArrowRight, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2 } from "lucide-react";
+import { Gamepad2, Star, Flame, CheckCircle, XCircle, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2 } from "lucide-react";
 import { fetchAPI } from "../../utils/api";
 import { createClient } from "../../utils/supabase/client";
 
@@ -29,15 +29,14 @@ export default function InteractiveStudyHubPage() {
     checkAccess();
   }, []);
 
-
   const [activeTab, setActiveTab] = useState("flashcards");
 
-  // 🔴 Predictor State
+  // Predictor State
   const [courseCode, setCourseCode] = useState("");
   const [isPredicting, setIsPredicting] = useState(false);
   const [predictions, setPredictions] = useState<any[]>([]);
 
-  // 🔴 Debate State
+  // Debate State
   const [debateStance, setDebateStance] = useState("");
   const [aiPersona, setAiPersona] = useState("Aggressive Realist");
   const [isDebating, setIsDebating] = useState(false);
@@ -46,32 +45,27 @@ export default function InteractiveStudyHubPage() {
   const [timeLeft, setTimeLeft] = useState<number | null>(null); 
   const [debateHistory, setDebateHistory] = useState<any[]>([]); 
   const [judgeVerdict, setJudgeVerdict] = useState<any>(null);
-  const [debateResponse, setDebateResponse] = useState("");
   const [arenaStarted, setArenaStarted] = useState(false);
   
-  
-  // 🔴 Dynamic Gamification States
+  // Gamification States
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   
   // Flashcard States
   const [topic, setTopic] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [flashcards, setFlashcards] = useState([]);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [cards, setCards] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [difficulty, setDifficulty] = useState("Medium");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Battle Mode State
   const [isSearching, setIsSearching] = useState(false);
 
   const handleFindOpponent = () => {
     setIsSearching(true);
-    // Simulate matchmaking delay
     setTimeout(() => {
       alert("No opponents currently online in your batch. Try challenging a bot in the Debate Arena for now!");
       setIsSearching(false);
@@ -88,7 +82,6 @@ export default function InteractiveStudyHubPage() {
         body: JSON.stringify({ topic, feature_type: "flashcards", extra_data: { difficulty } })
       });
       if (res.data && res.data.flashcards) {
-        // Mapping backend JSON to Frontend State
         const formatted = res.data.flashcards.map((c: any) => ({
           q: c.q, options: c.options, ans: c.correct_option, exp: c.explanation
         }));
@@ -121,24 +114,57 @@ export default function InteractiveStudyHubPage() {
     }
   };
 
-  // Fetch Initial Gamification Data
+  // 🔴 Fetch Initial Gamification Data & SET UP REALTIME SUBSCRIPTION
   useEffect(() => {
+    let isMounted = true;
+    const supabase = createClient();
+
+    // Function to load the absolute truth from the database
     async function loadGamification() {
       try {
         const res = await fetchAPI("/study/profile");
-        if (res.status === "success") {
+        if (res.status === "success" && isMounted) {
           setXp(res.xp);
           setStreak(res.streak);
           setLeaderboard(res.leaderboard || []);
         }
       } catch (error) {
-        console.error("Failed to load gamification profile");
+        console.error("Failed to load profile data");
       }
     }
+
+    // 1. Initial Load
     loadGamification();
+
+    // 2. ⚡ THE MAGIC: Supabase Realtime WebSocket Connection
+    const profileSubscription = supabase
+      .channel('live-leaderboard')
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'user_profiles' 
+        },
+        (payload) => {
+          console.log("⚡ Realtime Update Detected:", payload);
+          // Whenever ANY user's profile updates (XP changes), instantly re-sync the leaderboard!
+          loadGamification();
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log("🟢 Connected to GSTU Realtime Network");
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(profileSubscription);
+    };
   }, []);
 
-  // 🔴 Mr. Atlas Dynamic Brain
   const getAtlasQuote = () => {
     if (xp === 0) return "Zero XP? Are you studying or just staring at the screen? Start swiping those flashcards!";
     if (streak > 2) return `Woah, ${streak} streak! You are officially a geopolitical threat right now! Keep pushing!`;
@@ -149,10 +175,11 @@ export default function InteractiveStudyHubPage() {
       setSelectedAnswer(opt);
       const correct = opt === cards[currentIndex].ans;
       setIsCorrect(correct);
-      const delta = correct ? 5 : -1.5;
-      setXp(prev => Math.max(0, prev + delta));  // local update, unchanged UX
+      const delta = correct ? 5 : -2.5; // 🔴 Updated to -2.5 per requirement
+      setXp(prev => Math.max(0, prev + delta));
       if (!correct) setStreak(0);
-      // 🔴 actually persist it
+      else setStreak(prev => prev + 1);
+      
       fetchAPI(`/study/xp?amount=${delta}`, { method: "POST" }).catch(err =>
         console.error("Failed to persist XP:", err)
       );
@@ -181,27 +208,25 @@ export default function InteractiveStudyHubPage() {
   const handleStartDebate = async () => {
     if (!debateStance.trim()) return;
 
-    // 1. Update UI instantly with User's message
     const currentInput = debateStance;
     const newHistory = [...debateHistory, { role: "User", content: currentInput }];
     
     setDebateHistory(newHistory);
-    setDebateStance(""); // Clear input box
-    setIsDebating(true); // Start loading spinner
+    setDebateStance(""); 
+    setIsDebating(true); 
 
     try {
-      // 2. Call the API (Make sure endpoint matches your backend)
-      const res = await fetchAPI("/powerups/gamify", {
+      // 🔴 FIX: Changed from /powerups/gamify to /study/gamify
+      const res = await fetchAPI("/study/gamify", {
         method: "POST",
         body: JSON.stringify({ 
           topic: currentInput, 
           feature_type: "debate", 
-          extra_data: { persona: aiPersona, history: newHistory } 
+          extra_data: { history: newHistory } 
         })
       });
 
       if (res?.data) {
-        // 3. Update UI with AI Response
         const aiResponseText = res.data.ai_response || res.data;
         setDebateHistory(prev => [...prev, { role: "AI", content: aiResponseText }]);
       } else {
@@ -209,7 +234,7 @@ export default function InteractiveStudyHubPage() {
       }
     } catch (error) {
       console.error("Debate Error:", error);
-      alert("Network error during debate.");
+      alert("Network error during debate. Ensure API keys are active.");
     } finally {
       setIsDebating(false);
     }
@@ -224,12 +249,12 @@ export default function InteractiveStudyHubPage() {
       return;
     }
     
-    setIsDebating(true); // Reusing loading state for the button
+    setIsDebating(true); 
     try {
-      // Format transcript for the Judge AI
       const transcript = debateHistory.map((m) => `${m.role}: ${m.content}`).join("\n");
       
-      const res = await fetchAPI("/powerups/gamify", {
+      // 🔴 FIX: Changed endpoint to /study/gamify
+      const res = await fetchAPI("/study/gamify", {
         method: "POST",
         body: JSON.stringify({ 
           topic: "Evaluate this debate", 
@@ -240,6 +265,13 @@ export default function InteractiveStudyHubPage() {
 
       if (res?.data) {
         setJudgeVerdict(res.data);
+        // 🔴 AWARD XP IF USER WINS!
+        if (res.data.winner?.toLowerCase().includes("user")) {
+           const reward = debateDuration;
+           fetchAPI(`/study/xp?amount=${reward}`, { method: "POST" })
+             .then(xpres => setXp(xpres.xp))
+             .catch(e => console.error(e));
+        }
       } else {
         alert("⚠️ Judge AI failed to evaluate. Try again.");
       }
@@ -262,7 +294,7 @@ export default function InteractiveStudyHubPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar pt-16 md:pt-0">
+    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
       
       {/* Header & Badges */}
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -301,7 +333,7 @@ export default function InteractiveStudyHubPage() {
             <button onClick={() => setActiveTab("battle")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "battle" ? "bg-amber-500/20 text-amber-400" : "bg-[#1e1e1e] text-gray-400 hover:text-white"}`}>🏆 Battle Mode</button>
           </div>
 
-          {/* 🃏 TAB 1: FLASHCARDS */}
+          {/* TAB 1: FLASHCARDS */}
           {activeTab === "flashcards" && (
             <div className="space-y-6 animate-in fade-in">
               <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl p-6 shadow-xl flex gap-4">
@@ -317,7 +349,7 @@ export default function InteractiveStudyHubPage() {
                   disabled={!topic || isGenerating} 
                   className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-8 py-4 rounded-2xl transition-all shadow-lg"
                 >
-                  Generate 🎲
+                  {isGenerating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Generate 🎲"}
                 </button>
               </div>
 
@@ -356,6 +388,11 @@ export default function InteractiveStudyHubPage() {
                         </h3>
                         <p className="text-gray-300 text-[14.5px]"><span className="font-bold text-white">Explanation:</span> {cards[currentIndex].exp}</p>
                       </div>
+                      {currentIndex < cards.length - 1 && (
+                        <button onClick={() => { setCurrentIndex(prev => prev + 1); setSelectedAnswer(null); setIsCorrect(null); }} className="mt-4 w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3 rounded-xl transition-colors">
+                          Next Card ➡️
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -368,7 +405,7 @@ export default function InteractiveStudyHubPage() {
             </div>
           )}
 
-          {/* 📈 TAB 2: EXAM PREDICTOR (Dynamic UI) */}
+          {/* TAB 2: EXAM PREDICTOR */}
           {activeTab === "predictor" && (
             <div className="bg-[#1e293b]/40 border border-emerald-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><LineChart className="w-5 h-5 text-emerald-400"/> Predictive Exam Analytics</h3>
@@ -397,14 +434,13 @@ export default function InteractiveStudyHubPage() {
             </div>
           )}
 
-          {/* ⚔️ TAB 3: DEBATE ARENA (Dynamic UI) */}
+          {/* TAB 3: DEBATE ARENA */}
           {activeTab === "debate" && (
             <div className="bg-[#2a1215]/40 border border-indigo-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Swords className="w-5 h-5 text-indigo-400"/> AI Debate Arena</h3>
               <p className="text-sm text-gray-400 mb-6">Challenge the AI on geopolitics. An unbiased AI Judge will score your factual accuracy.</p>
               
               {!arenaStarted && !judgeVerdict ? (
-                // --- 1. INITIALIZE ARENA ---
                 <div className="space-y-5 max-w-lg mx-auto bg-[#1a0b0d] p-8 rounded-2xl border border-white/5">
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">⏱️ Select Duration</label>
@@ -419,9 +455,7 @@ export default function InteractiveStudyHubPage() {
                   </button>
                 </div>
               ) : (
-                // --- 2. ACTIVE DEBATE & TIMER ---
                 <div className="space-y-6">
-                  {/* Timer Header */}
                   {!judgeVerdict && (
                     <div className="flex justify-between items-center bg-[#1a0b0d] p-4 rounded-xl border border-white/5">
                       <h3 className={`text-2xl font-bold ${timeLeft! < 60 ? 'text-rose-500 animate-pulse' : 'text-white'}`}>
@@ -433,7 +467,6 @@ export default function InteractiveStudyHubPage() {
                     </div>
                   )}
 
-                  {/* Chat History */}
                   <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar p-2">
                     {debateHistory.map((msg, i) => (
                       <div key={i} className={`p-4 rounded-xl border ${msg.role === 'User' ? 'bg-indigo-500/10 border-indigo-500/20 ml-auto max-w-[80%]' : 'bg-[#171717] border-white/10 mr-auto max-w-[80%]'}`}>
@@ -443,7 +476,6 @@ export default function InteractiveStudyHubPage() {
                     ))}
                   </div>
 
-                  {/* Time's Up / Judge Summoning */}
                   {timeLeft === 0 && !judgeVerdict ? (
                     <div className="text-center p-6 border border-amber-500/30 bg-amber-500/10 rounded-2xl">
                       <h3 className="text-xl font-bold text-amber-400 mb-4">⏳ Time's Up!</h3>
@@ -452,7 +484,6 @@ export default function InteractiveStudyHubPage() {
                       </button>
                     </div>
                   ) : !judgeVerdict ? (
-                    // Input Box
                     <div className="flex gap-3">
                       <input type="text" value={debateStance} onChange={(e) => setDebateStance(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleStartDebate()} placeholder="Type your argument..." className="flex-1 bg-[#1a0b0d] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:border-indigo-500" />
                       <button onClick={handleStartDebate} disabled={!debateStance || isDebating} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 rounded-xl font-bold disabled:opacity-50">
@@ -461,7 +492,6 @@ export default function InteractiveStudyHubPage() {
                     </div>
                   ) : null}
 
-                  {/* Judge Verdict Results */}
                   {judgeVerdict && (
                     <div className="bg-[#171717] border border-emerald-500/30 p-8 rounded-3xl animate-in slide-in-from-bottom-4 shadow-2xl">
                       <h3 className="text-2xl font-bold text-center text-emerald-400 mb-6">🏆 WINNER: {judgeVerdict.winner}</h3>
@@ -489,10 +519,9 @@ export default function InteractiveStudyHubPage() {
             </div>
           )}
 
-          {/* 🏆 TAB 4: BATTLE MODE */}
+          {/* TAB 4: BATTLE MODE */}
           {activeTab === "battle" && (
             <div className="bg-[#291a0b]/40 border border-amber-500/20 rounded-3xl p-10 text-center animate-in fade-in h-[500px] flex flex-col justify-center items-center relative overflow-hidden">
-              {/* Dynamic Background Pulse */}
               {isSearching && <div className="absolute inset-0 bg-amber-500/5 animate-pulse rounded-3xl"></div>}
               
               <Trophy className={`w-20 h-20 text-amber-500 mb-6 ${isSearching ? 'animate-spin' : 'animate-bounce'}`} />
@@ -527,7 +556,7 @@ export default function InteractiveStudyHubPage() {
             <div className="flex items-start gap-4">
               <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Atlas&backgroundColor=6366f1" alt="Atlas" className="w-16 h-16 rounded-2xl bg-[#0a0a0a] border border-white/10 shadow-inner" />
               <div className="bg-[#0a0a0a] border border-white/10 p-4 rounded-2xl rounded-tl-none relative flex-1">
-                <p className={`text-[13px] italic font-medium ${streak > 2 ? 'text-emerald-300' : 'text-emerald-300'}`}>
+                <p className="text-[13px] italic font-medium text-emerald-300">
                   "{getAtlasQuote()}"
                 </p>
               </div>
@@ -540,8 +569,6 @@ export default function InteractiveStudyHubPage() {
               <Trophy className="w-4 h-4 text-amber-400" /> Live Leaderboard
             </h3>
             <div className="space-y-4">
-              
-              {/* 🔴 DYNAMIC LEADERBOARD MAPPING */}
               {leaderboard.length > 0 ? (
                 leaderboard.map((user, i) => {
                   const medals = ["🥇", "🥈", "🥉"];
@@ -560,7 +587,7 @@ export default function InteractiveStudyHubPage() {
                 <div className="text-center text-gray-500 py-4 text-sm">No leaderboard data yet.</div>
               )}
 
-              {/* 🔴 CURRENT USER HIGHLIGHT */}
+              {/* CURRENT USER HIGHLIGHT */}
               <div className="flex items-center justify-between p-3 rounded-xl transition-all bg-amber-500/10 border border-amber-500/20 mt-4">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">✨</span>

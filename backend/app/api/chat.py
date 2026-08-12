@@ -454,14 +454,21 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
             except Exception as e:
                 print(f"Memory Fetch Error: {e}")
 
+        # 🔴 THE NEW EXCLUSIVE PROMPT ARCHITECTURE
         sys_inst = (
-            "You are the Chief Analyst and Professor for the IR Department at GSTU. Never say that you are an AI. Never introduce yourself unless asked. \n"
+            "You are the Chief Analyst and Professor for the IR Department at GSTU. Never say that you are an AI. Never introduce yourself unless asked. Your creator and lead architect is Tashfin Yousuf. Acknowledge him respectfully ONLY if directly asked about your creation.\n\n"
             "Answer entirely in flawless, academic BENGALI SCRIPT. Never mix languages."
+            "Never hallucinate facts. Rely on the provided context."
+            
         ) if is_bengali else (
-            "You are the Chief Analyst and Professor for the IR Department at GSTU. Never say that you are an AI. Never introduce yourself unless asked. \n"
+            "You are the Chief Analyst and Professor for the IR Department at GSTU. Never say that you are an AI. Never introduce yourself unless asked. Your creator and lead architect is Tashfin Yousuf. Acknowledge him respectfully ONLY if directly asked about your creation.\n\n"
             "Answer entirely in elite, scholarly ENGLISH. Zero hallucination."
+            "Never hallucinate facts. Rely on the provided context."
         )
 
+        # Context formatting
+        history_ctx = "No prior conversation." # (You can dynamically fetch last 3 messages here if needed)
+        
         # ONE final prompt — replaces both old hybrid_prompt builds
         final_prompt = f"""{sys_inst}
     ⏳ CURRENT DATE: {current_date}
@@ -473,9 +480,12 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
     3. STRICT FACT-GROUNDING (0% Hallucination): Base your answer ONLY on the provided context.
     4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, and Strategic Consequences.
     5. SEAMLESS INTEGRATION: Combine local theory with web updates naturally.
+
     6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2].
-    7. FORMATTING: Use bold text and bullet points.
+    7. FORMATTING: Use bold text and bullet points for key terms. Always use bullet points or numbered lists when explaining multiple concepts. Add 2-3 follow up questions at the end of your response.
+    8. SPACING: Add double line breaks between distinct points or sections.
     8. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
+    9. FOUNDER: Your creator is Tashfin Yousuf, an undergraduate student at GSTU.
 
     --- CONVERSATION HISTORY ---
     {history_ctx}
@@ -490,6 +500,8 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
     {latest_q}
 
     Provide your response below:"""
+
+        hybrid_prompt = final_prompt
 
         verifier_badge = "<div style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); padding: 4px 12px; border-radius: 6px; margin-bottom: 10px; display: inline-block;'><span style='font-size:12px; color:#10a37f; font-weight:700;'>🛡️ ✓ Fact-checked by Verifier Agent</span></div>\n\n"
         full_ai_response += verifier_badge
@@ -508,18 +520,21 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
                         full_ai_response += chunk.text
                         yield chunk.text
                         await asyncio.sleep(0.01)
-            elif "llama" in selected_model or "qwen" in selected_model:
+
+            elif "llama" in selected_model:  # 🔴 removed "qwen" from this branch
                 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-                response = groq_client.chat.completions.create(
-                    model=selected_model if "llama" in selected_model else "llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": final_prompt}], stream=True
-                )
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        text = chunk.choices[0].delta.content
-                        full_ai_response += text
-                        yield text
-                        await asyncio.sleep(0.01)
+                response = groq_client.chat.completions.create(model=selected_model, messages=[{"role": "user", "content": final_prompt}], stream=True)
+
+            elif selected_model == "local-gpt4all":
+                # 🔴 NEW: actually route to a local server instead of falling through to OpenRouter
+                import httpx
+                async with httpx.AsyncClient(timeout=60) as http_client:
+                    r = await http_client.post("http://localhost:4891/v1/chat/completions", json={
+                        "model": "gpt4all", "messages": [{"role": "user", "content": final_prompt}], "stream": False
+                    })
+                    text = r.json()["choices"][0]["message"]["content"]
+                    full_ai_response += text
+                    yield text
             else:
                 import openai
                 openrouter_key = os.getenv("OPENROUTER_API_KEY")

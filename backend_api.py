@@ -166,7 +166,7 @@ async def chat_with_ai(request: ChatRequest, token: str = Depends(verify_token))
     
 
     # 0. MODEL LOCKING & CREDIT DEDUCTION LOGIC
-    premium_models = ["gpt-4o", "claude-3-5-sonnet", "gemini-1.5-pro"]
+    premium_models = ["gpt-4o", "claude-3-5-sonnet", "gemini-2.5-pro"]
     cost_per_premium_prompt = 5
     
     if selected_model in premium_models and user_id != "guest" and supabase:

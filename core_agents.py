@@ -68,11 +68,11 @@ def get_specialist_llm(intent="academic_rag"):
     if intent == "research":
         # Complex task: Try to use best model first
         primary_model = "llama-3.3-70b-versatile"
-        fallback_model = "gemini-1.5-pro" # Or gemini-1.5-flash
+        fallback_model = "gemini-2.5-flash" # Or gemini-1.5-flash
     else:
         # Standard task: Use fast/cheap models
-        primary_model = "llama-3.1-8b-instant"
-        fallback_model = "gemini-1.5-flash"
+        primary_model = "llama-3.3-8b-instant"
+        fallback_model = "gemini-2.5-flash"
 
     # 1. PRIMARY PROVIDER (Groq - Super Fast)
     primary_llm = ChatGroq(

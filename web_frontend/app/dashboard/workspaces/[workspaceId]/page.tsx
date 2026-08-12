@@ -294,7 +294,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
         endpoint = `${API_HOST}/academic/mock-exam`;
         bodyData = { workspace_id: workspaceId, topic, difficulty: "University Level" };
       } else if (actionType === "Smart Routine") {
-        endpoint = `${API_HOST}/academic/routine`;
+        endpoint = `${API_HOST}/study/routine`;
         bodyData = { workspace_id: workspaceId, study_hours: 4, focus_areas: [topic] };
       } else if (actionType === "Formal Notice") {
         endpoint = `${API_HOST}/academic/notice`;

@@ -1082,8 +1082,8 @@ useEffect(() => {
                           <div className="text-3xl font-bold text-white mb-6">৳0 <span className="text-sm text-gray-500 font-normal">/mo</span></div>
                           <ul className="space-y-4 mb-8">
                             <li className="flex items-center gap-3 text-sm text-gray-300"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Standard Fast Engine (Llama 4)</li>
-                            <li className="flex items-center gap-3 text-sm text-gray-300"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Basic RAG limit (2 PDFs)</li>
-                            <li className="flex items-center gap-3 text-sm text-gray-500 opacity-50"><XCircle className="w-4 h-4 shrink-0" /> No Multimodal Vision</li>
+                            <li className="flex items-center gap-3 text-sm text-gray-300"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Basic limits (2 PDFs)</li>
+                            <li className="flex items-center gap-3 text-sm text-white-500 opacity-50"><XCircle className="w-4 h-4 shrink-0" /> No Multimodal Vision</li>
                           </ul>
                           <button disabled className="w-full py-3.5 rounded-xl bg-white/5 text-gray-400 font-semibold border border-white/10">{userData.tier === 'free' ? 'Current Plan' : 'Free Tier'}</button>
                         </div>
@@ -1093,7 +1093,7 @@ useEffect(() => {
                           <h3 className="text-xl font-bold text-indigo-400 mb-2 flex items-center gap-2"><Zap className="w-5 h-5" /> GSTU Pro Scholar</h3>
                           <div className="text-3xl font-bold text-white mb-6">৳99 <span className="text-sm text-gray-500 font-normal">/mo</span></div>
                           <ul className="space-y-4 mb-8">
-                            <li className="flex items-center gap-3 text-sm text-gray-200"><CheckCircle className="w-4 h-4 text-indigo-400 shrink-0" /> Unlimited Premium AI</li>
+                            <li className="flex items-center gap-3 text-sm text-gray-200"><CheckCircle className="w-4 h-4 text-indigo-400 shrink-0" /> Premium AI Models Access</li>
                             <li className="flex items-center gap-3 text-sm text-gray-200"><CheckCircle className="w-4 h-4 text-indigo-400 shrink-0" /> Advanced Vision & Voice AI</li>
                           </ul>
 

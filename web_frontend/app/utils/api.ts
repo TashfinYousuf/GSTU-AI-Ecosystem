@@ -30,7 +30,18 @@ export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.detail || data.message || "API request failed");
+      let errorMessage = "API request failed";
+      
+      // 🔴 Properly parse FastAPI 422 Validation Array
+      if (Array.isArray(data.detail)) {
+        errorMessage = data.detail.map((err: any) => `${err.loc.join('.')}: ${err.msg}`).join(' | ');
+      } else if (data.detail) {
+        errorMessage = data.detail;
+      } else if (data.message) {
+        errorMessage = data.message;
+      }
+      
+      throw new Error(errorMessage);
     }
 
     return data;

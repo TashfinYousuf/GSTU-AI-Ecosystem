@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from google import genai
 from dotenv import load_dotenv
 
@@ -26,6 +26,7 @@ router = APIRouter(tags=["Academic Tools"])
 # ==========================
 # 📌 Request Models
 # ==========================
+
 class RoutineRequest(BaseModel):
     workspace_id: str
     study_hours: int = 4
@@ -36,10 +37,12 @@ class ExamRequest(BaseModel):
     topic: str
     difficulty: str = "University Level"
 
+# 🔴 STRICT SCHEMA: Frontend MUST send these exact keys!
 class AcademicTaskRequest(BaseModel):
-    workspace_id: str
-    task_type: str  # "rubric", "summary", "flashcards"
-    topic: str
+    task_type: str         # "grading" or "formalize"
+    content: str           # The actual text to be processed
+    topic: Optional[str] = "General"  
+    extra_data: Optional[dict] = {}
 
 class NoticeRequest(BaseModel):
     raw_text: str
@@ -47,34 +50,6 @@ class NoticeRequest(BaseModel):
 # ==========================
 # 📌 API Routes
 # ==========================
-
-@router.post("/routine")
-async def generate_smart_routine(
-    request: RoutineRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    ইউজারের ফোকাস এরিয়া এবং সময়ের ওপর ভিত্তি করে LLM দিয়ে প্রোডাক্টিভ স্টাডি রুটিন তৈরি করবে।
-    """
-    if not current_user.get("sub"):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    prompt = f"""You are an expert Academic Advisor. 
-Create a highly productive {request.study_hours}-hour study routine focusing strictly on the following areas: {', '.join(request.focus_areas)}. 
-Format the routine beautifully in Markdown with specific time blocks, breaks (Pomodoro style), and actionable tasks.
-"""
-    try:
-        client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        return {"status": "success", "result": response.text}
-    except Exception as e:
-        print(f"Routine Gen Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate routine.")
-
-
 @router.post("/mock-exam")
 async def generate_mock_exam(
     request: ExamRequest,
@@ -133,8 +108,9 @@ async def generate_academic_content(
         similar_docs = vectorstore.similarity_search(request.topic, k=3)
         if similar_docs:
             context_text = "\n\n".join([doc.page_content for doc in similar_docs])
-    except Exception:
-        pass
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     if request.task_type == "rubric":
         prompt = f"Create a detailed university-level grading rubric for an assignment on '{request.topic}'. Context: {context_text}"

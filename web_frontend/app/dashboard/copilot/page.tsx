@@ -9,11 +9,17 @@ import remarkGfm from 'remark-gfm';
 
 export default function AcademicCopilotPage() {
   const [activeTab, setActiveTab] = useState("routine");
+  
+  const [userRole, setUserRole] = useState("student");
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+
+  // 🔴 Input States
   const [inputTopic, setInputTopic] = useState("");
+  const [studentContent, setStudentContent] = useState(""); // Missing state added for Academic grading/notices
   const [studyHours, setStudyHours] = useState(4);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 🔴 Separate States for different outputs
+  // 🔴 Output States
   const [result, setResult] = useState<string | null>(null);
   const [routineData, setRoutineData] = useState<any>(null);
   const [assessmentData, setAssessmentData] = useState<any>(null);
@@ -22,64 +28,123 @@ export default function AcademicCopilotPage() {
   const [expandedHints, setExpandedHints] = useState<{ [key: number]: boolean }>({});
   const [expandedAnswers, setExpandedAnswers] = useState<{ [key: number]: boolean }>({});
 
+  // 🔴 On Mount: Fetch Existing Routine
+  useEffect(() => {
+    const fetchSavedRoutine = async () => {
+      try {
+        const res = await fetchAPI("/study/routine", { method: "GET" });
+        if (res.data && res.data.routine_data) {
+          setRoutineData(res.data.routine_data);
+        }
+      } catch (e) {
+        console.log("No saved routine found.");
+      }
+    };
+    fetchSavedRoutine();
+  }, []);
+
   // 🔴 Safe Execution & State Routing
   const executeTask = async () => {
+    
+    // 1. Dynamic Data Validation Based on Active Tab
+    if (activeTab === "routine" || activeTab === "exam") {
+      if (!inputTopic.trim()) {
+        alert("Please enter a topic first!");
+        return;
+      }
+    } else {
+      // For Grading, Formalize, Rubric, etc.
+      if (!studentContent.trim()) {
+        alert("Please provide the text/content first!");
+        return;
+      }
+    }
+
     setIsLoading(true);
     setResult(null);
-    setRoutineData(null);
-    setAssessmentData(null);
+    if (activeTab === "routine") setRoutineData(null);
+    if (activeTab === "exam") setAssessmentData(null);
 
     try {
       if (activeTab === "routine") {
-        const res = await fetchAPI("/study/routine", {
+        // 🔴 Fix: Matched with Backend Endpoint (/study/routine/generate)
+        const res = await fetchAPI("/study/routine/generate", {
           method: "POST",
-          body: JSON.stringify({ weak_topics: [inputTopic], strong_topics: [], target_cgpa: 3.8 })
+          body: JSON.stringify({ 
+            focus_area: inputTopic, 
+            weak_topics: [inputTopic], 
+            strong_topics: [], 
+            target_cgpa: 3.8 
+          })
         });
+        
         if (res.status === "success") {
           setRoutineData(res.data);
-          // Backup to Supabase
-          const supabase = createClient();
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            const { error: saveError } = await supabase.from("smart_routines").insert({
-              user_id: session.user.id,
-              routine_data: res.data,
-            });
-            if (saveError) console.error("Failed to save routine to Supabase:", saveError);
-          }
+          // Note: Backend securely saves the routine to Supabase now. 
+          // Frontend redundant insert removed to prevent duplication.
         }
       } 
       else if (activeTab === "exam") {
+        // 🔴 Fix: Matched with Assessment Endpoint Payload
         const res = await fetchAPI("/study/assessment", {
           method: "POST",
-          body: JSON.stringify({ topic: inputTopic, difficulty: "Medium" })
+          body: JSON.stringify({ 
+            topic: inputTopic, 
+            difficulty: "Medium",
+            role: "Student" 
+          })
         });
         if (res.status === "success") setAssessmentData(res.data);
       } 
       else {
-        // Generic fallback for Rubric & Notice (Uses standard text generation)
-
-        const payload = { topic: inputTopic, task_type: activeTab }; 
-        const res = await fetchAPI("/academic/generate", { method: "POST", body: JSON.stringify(payload) });
+        // Generic fallback for Grading, Rubric & Notice (Uses standard text generation)
+        // 🔴 STRICT PAYLOAD MATCH for /academic/generate
+        const payload = { 
+          task_type: activeTab, 
+          content: studentContent,
+          topic: inputTopic || "General Academic Work" 
+        }; 
+        
+        const res = await fetchAPI("/academic/generate", { 
+          method: "POST", 
+          body: JSON.stringify(payload) 
+        });
         setResult(res.result || res.data || "Task completed successfully.");
       }
-    } catch (error) {
-      alert("Failed to process the request. Please check the network.");
+    } catch (error: any) {
+      alert(`Execution Failed: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleClearRoutine = async () => {
-    setRoutineData(null);
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const { error: deleteError } = await supabase.from("smart_routines").delete().eq("user_id", session.user.id);
-      if (deleteError) console.error("Failed to clear routine:", deleteError);
+    setIsLoading(true);
+    try {
+      // 🔴 Fix: Safe backend deletion
+      await fetchAPI("/study/routine", { method: "DELETE" });
+      setRoutineData(null);
+    } catch (error) {
+      console.error("Failed to clear routine:", error);
+      alert("Failed to clear routine.");
     }
-
+    setIsLoading(false);
   };
+
+  // 🔴 Add this useEffect to fetch the real user role on mount
+  useEffect(() => {
+    const checkAccess = async () => {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        // Fetch role from metadata and make it lowercase for easy comparison
+        const role = session.user.user_metadata?.role?.toLowerCase() || "student";
+        setUserRole(role);
+      }
+      setIsCheckingAccess(false);
+    };
+    checkAccess();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans transition-all duration-300">
@@ -103,18 +168,36 @@ export default function AcademicCopilotPage() {
           <div className="bg-[#1e1e1e] border border-white/5 rounded-2xl overflow-hidden shadow-xl p-2">
             <div className="px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Select Tool</div>
             <div className="space-y-1">
-              <button onClick={() => { setActiveTab("routine"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "routine" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
-                <Calendar className="w-4 h-4" /> Smart Study Routine
-              </button>
-              <button onClick={() => { setActiveTab("exam"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "exam" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
-                <Brain className="w-4 h-4" /> Mock Exam Generator
-              </button>
-              <button onClick={() => { setActiveTab("rubric"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "rubric" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
-                <CheckSquare className="w-4 h-4" /> Grading Rubric
-              </button>
-              <button onClick={() => { setActiveTab("notice"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "notice" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
-                <Bell className="w-4 h-4" /> Formal Notice Engine
-              </button>
+              
+              {/* ONLY FOR STUDENTS */}
+              {userRole === "student" && (
+                <>
+                  <button onClick={() => { setActiveTab("routine"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "routine" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                    <Calendar className="w-4 h-4" /> Smart Study Routine
+                  </button>
+                  <button onClick={() => { setActiveTab("exam"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "exam" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                    <Brain className="w-4 h-4" /> Mock Exam Generator
+                  </button>
+                </>
+              )}
+
+              {/* ONLY FOR FACULTY / ADMIN */}
+              {(userRole === "faculty" || userRole === "admin") && (
+                <>
+                  <button onClick={() => { setActiveTab("exam"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "exam" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                    <Brain className="w-4 h-4" /> Quiz Generator
+                  </button>
+
+                  <button onClick={() => { setActiveTab("rubric"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "rubric" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                    <CheckSquare className="w-4 h-4" /> Grading Rubric
+                  </button>
+                  
+                  <button onClick={() => { setActiveTab("notice"); setResult(null); setRoutineData(null); setAssessmentData(null); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "notice" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-inner" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                    <Bell className="w-4 h-4" /> Formal Notice Engine
+                  </button>
+                </>
+              )}
+              
             </div>
           </div>
 
@@ -132,7 +215,7 @@ export default function AcademicCopilotPage() {
 
             {activeTab === "routine" && (
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-400 mb-3 flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-400 mb-3 flex items-center justify-between">
                   <span>Target Study Hours/Day</span> <span className="text-amber-400 font-bold">{studyHours} hrs</span>
                 </label>
                 <input type="range" min="1" max="10" value={studyHours} onChange={(e) => setStudyHours(parseInt(e.target.value))} className="w-full accent-amber-500" />
@@ -149,7 +232,7 @@ export default function AcademicCopilotPage() {
             RIGHT COLUMN: DYNAMIC RESULTS OUTPUT
             ========================================= */}
         <div className="lg:col-span-8">
-          <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl p-8 shadow-xl min-h-[500px] flex flex-col relative">
+          <div className="bg-[#1e1e1e] border border-white/5 rounded-3xl p-8 shadow-xl min-h-125 flex flex-col relative">
             
             {/* Loading & Empty States */}
             {!isLoading && !result && !routineData && !assessmentData && (
@@ -182,7 +265,7 @@ export default function AcademicCopilotPage() {
                   const strategy = data.strategy || data;
                   
                   return (
-                    <div key={day} className="bg-gradient-to-br from-emerald-500/10 to-slate-900/60 border-l-4 border-emerald-500 border-t border-emerald-500/20 border-r border-emerald-500/20 border-b border-emerald-500/20 p-5 rounded-xl shadow-lg backdrop-blur-md">
+                    <div key={day} className="bg-linear-to-br from-emerald-500/10 to-slate-900/60 border-l-4 border-emerald-500 border-t border-emerald-500/20 border-r border-emerald-500/20 border-b border-emerald-500/20 p-5 rounded-xl shadow-lg backdrop-blur-md">
                       <h4 className="text-emerald-400 font-bold mb-2 flex items-center gap-2 text-lg">📅 {day.replace('_', ' ').toUpperCase()}</h4>
                       <p className="text-gray-200 text-[15px] leading-relaxed">
                         🎯 <b className="text-white">{focus}:</b> {strategy}

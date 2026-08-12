@@ -1,7 +1,5 @@
 import os
-import re
 import json
-import traceback
 import logging
 import random
 import datetime
@@ -54,57 +52,72 @@ def intent_router(query: str):
 
 
 # ==========================================
-# 1. LLM ORCHESTRATOR
+# 1. LLM ORCHESTRATOR (SAFE FASTAPI VERSION)
 # ==========================================
 def get_specialist_llm(intent="academic_rag"):
     """
     Layer 2 & 3: Multi-Provider Fallback & Model Routing
     Groq -> Gemini -> OpenRouter
+    (Fixed for FastAPI: No Streamlit dependencies, Safe Pydantic Init)
     """
-    # Fetch Keys safely
+    # 🔴 Fetch Keys safely using only os.getenv
     groq_key = os.getenv("GROQ_API_KEY")
-    gemini_key = os.getenv("GOOGLE_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
 
     # --- ROUTING LOGIC BASED ON INTENT ---
     if intent == "research":
-        # Complex task: Try to use best model first
         primary_model = "llama-3.3-70b-versatile"
-        fallback_model = "gemini-1.5-pro" # Or gemini-1.5-flash
+        fallback_model = "gemini-2.5-flash"
     else:
-        # Standard task: Use fast/cheap models
-        primary_model = "llama-3.1-8b-instant"
-        fallback_model = "gemini-1.5-flash"
+        primary_model = "llama-3.1-8b-instant" 
+        fallback_model = "gemini-2.5-flash"
 
-    # 1. PRIMARY PROVIDER (Groq - Super Fast)
-    primary_llm = ChatGroq(
-        model_name=primary_model, 
-        temperature=0.2, 
-        api_key=groq_key, 
-        max_retries=1
-    )
+    primary_llm = None
+    fallbacks = []
 
-    # 2. FALLBACK PROVIDER 1 (Google Gemini - High Rate Limits)
-    fallback_1 = ChatGoogleGenerativeAI(
-        model=fallback_model, 
-        temperature=0.2, 
-        google_api_key=gemini_key, 
-        max_retries=1
-    )
+    # 1. PRIMARY PROVIDER (Groq) - 🔴 INIT ONLY IF KEY EXISTS
+    if groq_key:
+        primary_llm = ChatGroq(
+            model_name=primary_model, 
+            temperature=0.2, 
+            api_key=groq_key, 
+            max_retries=1
+        )
 
-    # 3. FALLBACK PROVIDER 2 (OpenRouter - Universal Backup)
-    fallback_2 = ChatOpenAI(
-        model_name="meta-llama/llama-3-8b-instruct:free", 
-        temperature=0.2, 
-        api_key=openrouter_key, 
-        base_url="https://openrouter.ai/api/v1", 
-        max_retries=1
-    )
+    # 2. FALLBACK 1 (Google Gemini) - 🔴 INIT ONLY IF KEY EXISTS
+    if gemini_key:
+        fallbacks.append(
+            ChatGoogleGenerativeAI(
+                model=fallback_model, 
+                temperature=0.2, 
+                google_api_key=gemini_key, 
+                max_retries=1
+            )
+        )
 
-    # 🔴 THE MAGIC: Bind them together for automatic failover!
-    robust_llm = primary_llm.with_fallbacks([fallback_1, fallback_2])
-    
-    return robust_llm
+    # 3. FALLBACK 2 (OpenRouter) - 🔴 INIT ONLY IF KEY EXISTS
+    if openrouter_key:
+        fallbacks.append(
+            ChatOpenAI(
+                model_name="meta-llama/llama-3-8b-instruct:free", 
+                temperature=0.2, 
+                api_key=openrouter_key, 
+                base_url="https://openrouter.ai/api/v1", 
+                max_retries=1
+            )
+        )
+
+    # 🔴 THE MAGIC: Bind them together safely!
+    if primary_llm and fallbacks:
+        return primary_llm.with_fallbacks(fallbacks)
+    elif primary_llm:
+        return primary_llm
+    elif fallbacks:
+        return fallbacks[0]
+    else:
+        # If absolutely NO keys are found in the .env file, throw a clean error
+        raise ValueError("CRITICAL ERROR: No AI API keys (Groq/Gemini) found in the backend .env file.")
 
 
 # ==========================================
@@ -340,17 +353,58 @@ Output EXACTLY in this JSON format:
 # 5. GEN-Z GAMIFIED EDTECH ENGINE
 # ==========================================
 def generate_genz_features(topic: str, feature_type: str, extra_data: dict = None):
+    # 🔴 FIX: Move imports to the very top of the function to prevent UnboundLocalError
+    import json
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
     try:
         llm = get_specialist_llm()
         messages = []
         
-        if feature_type == "debate":
-            system_prompt = """You are a master debater and geopolitical thinker.
-            Counter the user's argument aggressively. 
+        if feature_type == "flashcards":
+            difficulty = extra_data.get("difficulty", "Medium") if extra_data else "Medium"
+            card_count = extra_data.get("count", 10) 
+            
+            import random
+            seed = random.randint(1, 99999) # 🔴 Hard forces the AI to pick new sub-topics
+            
+            system_prompt = f"You are an AI creating a highly addictive MCQ flashcard game. Difficulty: {difficulty}. Seed: {seed}\n"
+            system_prompt += f""" CRITICAL RULES:
+            1. Generate EXACTLY {card_count} UNIQUE questions. 
+            2. EXPLORE OBSCURE SUB-TOPICS. DO NOT ask the most common examples. Ensure 100% variety.
+            3. Make questions direct and short (Max 1-2 lines).
+            4. Output EXACTLY in this JSON format without markdown ticks:
+            {{
+                "flashcards": [
+                    {{
+                        "q": "Short question here?", 
+                        "options": ["A", "B", "C", "D"], 
+                        "correct_option": "A", 
+                        "explanation": "1 short sentence."
+                    }}
+                ]
+            }}"""
+            messages = [SystemMessage(content=system_prompt.replace("{{", "{").replace("}}", "}")), HumanMessage(content=f"Topic: {topic}")]
+
+
+        elif feature_type == "debate":
+            history = extra_data.get("history", []) if extra_data else []
+            system_prompt = """You are an elite, aggressive geopolitical debater.
             CRITICAL RULES: 
-            1. Respond in the EXACT SAME LANGUAGE as the user (Bengali or English).
-            2. Keep it punchy, direct, and SHORT (Maximum 3 sentences)."""
-            messages = [SystemMessage(content=system_prompt), HumanMessage(content=f"Argument: {topic}")]
+            1. Respond in the EXACT SAME LANGUAGE as the user.
+            2. BE LIGHTNING FAST. Maximum 2 sentences. Max 40 words.
+            3. NO INTROS, NO OUTROS. Attack the claim instantly using hard facts.
+            4. Ask ONE sharp follow-up question to corner the user."""
+            
+            from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+            messages = [SystemMessage(content=system_prompt)]
+            
+            if history:
+                for msg in history:
+                    if msg.get("role") == "User": messages.append(HumanMessage(content=msg.get("content")))
+                    elif msg.get("role") == "AI": messages.append(AIMessage(content=msg.get("content")))
+            else:
+                messages.append(HumanMessage(content=f"Argument: {topic}"))
 
         elif feature_type == "roast":
             student_ans = extra_data.get("answer", "") if extra_data else ""
@@ -365,43 +419,21 @@ def generate_genz_features(topic: str, feature_type: str, extra_data: dict = Non
                 "correct_concept": "The actual academic truth (short)"
             }"""
             messages = [SystemMessage(content=system_prompt), HumanMessage(content=f"Q: {topic}\nAns: {student_ans}")]
-        
-        elif feature_type == "flashcards":
-            difficulty = extra_data.get("difficulty", "Medium") if extra_data else "Medium"
-            # 🔴 Separated f-string from the JSON block to ensure clean single {} brackets
-            system_prompt = f"You are an AI creating a highly addictive, gamified MCQ flashcard game.\nCurrent Difficulty Level: {difficulty}\n"
-            system_prompt += """ CRITICAL RULES:
-            1. Make the question DIRECT, SHORT, and TO THE POINT (Max 1-2 lines).
-            2. Use easy but standard academic language.
-            3. Ensure the question is 100% UNIQUE.
-            4. If difficulty is Hard, ask analytical/conceptual questions. If Easy, ask direct factual definitions.
-            
-            Output EXACTLY in this JSON format without markdown ticks:
-            {
-                "flashcards": [
-                    {
-                        "q": "Short question here?", 
-                        "options": ["A. Option", "B. Option", "C. Option", "D. Option"], 
-                        "correct_option": "A. Option", 
-                        "explanation": "1 short sentence explanation."
-                    }
-                ]
-            }"""
-            # Using single braces inside double braces for string formatting safety in python
-            messages = [SystemMessage(content=system_prompt.replace("{{", "{").replace("}}", "}")), HumanMessage(content=f"Topic: {topic}\nGenerate 5 unique flashcards for a continuous swipe game.")]
 
+        
         elif feature_type == "predictor":
             rag_context = extra_data.get("context", "No direct DB context found.") if extra_data else ""
             system_prompt = """You are an Elite AI Exam Predictor. 
             Based on the provided RAG Context (Syllabus/Past papers), mathematically predict the most probable exam topics.
-            Output EXACTLY in this JSON format without markdown ticks:
+            CRITICAL RULE: DO NOT write any intro or outro text. Output ONLY valid JSON.
+            Output EXACTLY in this JSON format:
             {
                 "predictions": [
                     {"topic": "Predicted Topic 1", "probability": 85, "reason": "Based on past frequency..."}
                 ]
             }"""
             messages = [SystemMessage(content=system_prompt), HumanMessage(content=f"Course: {topic}\nRAG Context: {rag_context}")]
-        
+            
         elif feature_type == "judge":
             transcript = extra_data.get("transcript", "") if extra_data else ""
             system_prompt = """You are an Elite Academic Debate unbiased Judge (IR Specialist).

@@ -202,7 +202,7 @@ export default function FacultyNodePage() {
            if (!adminAccess) setActiveTab("knowledge-base");
         }
 
-        // 🔴 Fetch Knowledge Base Logs (Just like app.py)
+        // 🔴 Fetch Knowledge Base Logs
         const { data: kbData, error: kbError } = await supabase
           .from("knowledge_base_logs")
           .select("course_tag, doc_type, created_at")
@@ -236,7 +236,7 @@ export default function FacultyNodePage() {
 
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-6 md:p-12 font-sans overflow-y-auto custom-scrollbar pt-16 md:pt-0">
+    <div className="min-h-screen bg-[#121212] text-gray-200 p-6 md:p-12 font-sans overflow-y-auto custom-scrollbar">
  
       <div className="mb-10">
         <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
