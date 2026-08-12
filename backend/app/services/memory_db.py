@@ -24,7 +24,7 @@ def get_secret(key):
 
 # Fetch keys securely
 SUPABASE_URL = get_secret("SUPABASE_URL")
-SUPABASE_KEY = get_secret("SUPABASE_KEY")
+SUPABASE_KEY = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_KEY")
 
 supabase: Client | None = None
 
