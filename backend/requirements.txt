@@ -1,53 +1,69 @@
-# ==========================================
-# GSTU AI Backend — Production Stack
-# Python 3.12
-# ==========================================
-
-# ---------- Web ----------
+# =========================
+# Web / Runtime
+# =========================
 fastapi>=0.115,<1
 uvicorn[standard]>=0.35,<1
-pydantic>=2.10,<3
+pydantic[email]>=2.10,<3
 python-multipart>=0.0.9,<1
-python-dotenv>=1.0,<2
+python-dotenv>=1,<2
 httpx>=0.27,<1
 
-# ---------- Supabase ----------
+# =========================
+# PostgreSQL / SQLAlchemy
+# =========================
+sqlalchemy>=2,<3
+psycopg2-binary>=2.9,<3
+
+# =========================
+# Supabase
+# =========================
 supabase==2.31.0
 
-# ---------- AI Providers ----------
+# =========================
+# AI Providers
+# =========================
 google-genai==2.13.0
 groq>=0.30,<1
 openai>=1.100,<3
 
-# ---------- LangChain v1 Stack ----------
+# =========================
+# LangChain / LangGraph
+# =========================
 langchain>=1.2,<2
 langchain-core>=1.4,<2
 langchain-community>=0.4,<1
 langchain-google-genai>=4.2,<5
-langchain-groq>=1.0,<2
-langchain-openai>=1.0,<2
+langchain-groq>=1,<2
+langchain-openai>=1,<2
+
 langgraph>=1.2,<2
 langgraph-prebuilt>=1.1,<2
-langchain-chroma>=1.1,<2
-langchain-pinecone>=0.2,<1
 
-# ---------- Vector ----------
-pinecone>=7,<8
+# Chroma is imported directly by vector_store.py
+langchain-chroma>=1.1,<2
 chromadb>=1,<2
 
-# ---------- Search ----------
+# Pinecone
+langchain-pinecone>=0.2,<1
+pinecone>=7,<8
+
+# =========================
+# Search
+# =========================
 tavily-python>=0.7,<1
 
-# ---------- Documents ----------
+# =========================
+# Documents
+# =========================
 pypdf>=5,<7
 
-# ---------- Data ----------
+# =========================
+# Data
+# =========================
 pandas>=2.2,<3
 numpy>=2,<3
 
-# ---------- Security ----------
+# =========================
+# Security / Rate limit
+# =========================
 slowapi>=0.1.9,<1
-
-# --- Database / ORM ---
-sqlalchemy>=2.0,<3
-psycopg2-binary>=2.9,<3
