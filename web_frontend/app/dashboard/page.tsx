@@ -6,6 +6,7 @@ import { Clock, Brain, Target, TrendingUp, BookOpen, PenTool, CheckSquare, FileQ
 import Link from "next/link";
 import { createClient } from "../utils/supabase/client";
 import { fetchAPI } from "../utils/api";
+import useSWR from "swr";
 
 export default function MainDashboardPage() {
   const router = useRouter();
