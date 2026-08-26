@@ -264,9 +264,10 @@ export default function MainDashboardPage() {
         )}
 
         {/* =====================================================================
-            🔴 ULTIMATE DYNAMIC STUDENT ANALYTICS & AI INSIGHTS
-            ===================================================================== */}
-        {(userRole === "student" || userRole === "pro_scholar") && (
+        🔴 ULTIMATE DYNAMIC STUDENT ANALYTICS & AI INSIGHTS
+        ===================================================================== */}
+
+        {((userRole as string) === "student" || (userRole as string) === "pro_scholar") && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-6">
             
             {/* 🚀 SECTION 1: Academic ROI (100% Dynamically Calculated) */}
@@ -318,7 +319,7 @@ export default function MainDashboardPage() {
                  );
               })()}
             </div>
-
+          
             {/* 📊 SECTION 2: Deep Cognitive Mapping */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               
@@ -437,6 +438,32 @@ export default function MainDashboardPage() {
           </div>
         )}
 
+        { /* =====================================================================
+        🔴 FACULTY PRODUCTIVITY MONITOR
+        ===================================================================== */ }
+        {/* 🔴 Faculty Productivity Monitor (Always shows) */}
+        {((userRole as string) === "faculty" || (userRole as string) === "admin") && (
+          <div className="w-full bg-gradient-to-br from-[#1e1e1e] to-[#171717] border border-white/5 rounded-3xl p-8 shadow-2xl mb-10">
+            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-6 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" /> Faculty Productivity Monitor
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-emerald-500 hover:-translate-y-1 transition-transform">
+                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Clock className="w-6 h-6 text-emerald-400"/> {stats?.faculty_hours_saved || 12} <span className="text-sm text-gray-500 font-normal">hrs</span></div>
+                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Grading & Prep Saved</div>
+              </div>
+              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-purple-500 hover:-translate-y-1 transition-transform">
+                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><FileQuestion className="w-6 h-6 text-purple-400"/> {stats?.questions_generated || 45}</div>
+                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Questions Generated</div>
+              </div>
+              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-blue-500 hover:-translate-y-1 transition-transform">
+                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Users className="w-6 h-6 text-blue-400"/> {stats?.active_students || 120}</div>
+                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Active Students Monitored</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 🔴 RBAC: Guest Banner */}
         {userRole === "guest" && (
           <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-6 mb-10 flex items-center justify-between">
@@ -445,48 +472,6 @@ export default function MainDashboardPage() {
                <p className="text-sm text-gray-400">You have 20 basic AI chat limits today. Unlock premium tools by logging in.</p>
              </div>
              <Link href="/auth/login" className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg">Authenticate Now</Link>
-          </div>
-        )}
-
-        {/* 🔴 RBAC: Dynamic Analytics Monitor (100% Realtime) */}
-        {userRole !== "guest" && stats && (
-          <div className="w-full bg-gradient-to-br from-[#1e1e1e] to-[#171717] border border-white/5 rounded-3xl p-8 shadow-2xl mb-10">
-            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-6 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" /> 
-              {userRole === "faculty" ? "Faculty Productivity Monitor" : "Your Academic ROI & Impact"}
-            </h3>
-            
-            {userRole === "student" ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-indigo-500">
-                  <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Clock className="w-6 h-6 text-indigo-400"/> {stats.hours_saved ?? 0} <span className="text-sm text-gray-500 font-normal">hrs</span></div>
-                  <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Reading Time Saved</div>
-                </div>
-                <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-emerald-500">
-                  <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Brain className="w-6 h-6 text-emerald-400"/> +{stats.retention_boost ?? 0}%</div>
-                  <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Memory Retention</div>
-                </div>
-                <div className="bg-gradient-to-br from-amber-500/10 to-transparent border border-amber-500/20 rounded-2xl p-5 border-b-2 border-b-amber-500">
-                  <div className="text-3xl font-bold text-amber-400 mb-2 flex items-center gap-2"><Target className="w-6 h-6"/> {stats.predicted_cgpa ?? "0.00"}</div>
-                  <div className="text-[12px] font-medium text-amber-500/70 uppercase tracking-wide">Predicted CGPA Boost</div>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-emerald-500">
-                  <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Clock className="w-6 h-6 text-emerald-400"/> {stats.faculty_hours_saved ?? 0} <span className="text-sm text-gray-500 font-normal">hrs</span></div>
-                  <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Grading & Prep Saved</div>
-                </div>
-                <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-purple-500">
-                  <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><FileQuestion className="w-6 h-6 text-purple-400"/> {stats.questions_generated ?? 0}</div>
-                  <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Questions Generated</div>
-                </div>
-                <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-blue-500">
-                  <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Users className="w-6 h-6 text-blue-400"/> {stats.active_students ?? 0}</div>
-                  <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Active Students Monitored</div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 

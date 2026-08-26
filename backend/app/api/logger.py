@@ -30,6 +30,7 @@ def award_xp(user_id: str, amount: int, display_name: str):
 
 
 class LogRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
     minutes: int
 
@@ -81,6 +82,7 @@ async def get_daily_toast(current_user: dict = Depends(get_current_user)):
 
 
 class DailyLogRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     study_hours: float
     # 🔴 FIX: sleep_hours and mood were required, but DailyLogger.tsx's quick
     # form only collects study_hours/topics/notes and has no sleep or mood
@@ -173,14 +175,17 @@ async def get_student_mapping(current_user: dict = Depends(get_current_user)):
 
 
 class FeedbackRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     query: str
     response: str
     reason: str
 
 class StudyLogRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
     hours: float
     mood: int
+
 
 @router.post("/feedback")
 async def submit_ai_feedback(req: FeedbackRequest, current_user: dict = Depends(get_optional_current_user)):

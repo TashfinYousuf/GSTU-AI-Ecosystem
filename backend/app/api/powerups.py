@@ -2,6 +2,8 @@ import os
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
+
 from google import genai
 from dotenv import load_dotenv
 
@@ -25,21 +27,26 @@ def call_gemini_json(prompt: str) -> dict:
 
 # --- Request Models ---
 class ResearchRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
     task_mode: str  # "gap_hunter" or "literature_review"
 
 
 class RoastRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     question: str
     answer: str
 
 
 class PredictorRequest(BaseModel):
-    workspace_id: str
+    model_config = {"extra": "forbid"}
+    workspace_id: Optional[str] = None
     course_code: str
 
 
 class GamifyRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    
     """Matches the shape the frontend already sends to /powerups/gamify for
     debate & judge — {topic, feature_type, extra_data}."""
     topic: str
@@ -184,7 +191,7 @@ Debate History:
 User's latest point: {req.topic}
 
 INSTRUCTIONS: Counter the user aggressively using solid, well-reasoned facts and IR theory.
-Acknowledge their point but dismantle it. Keep it under 150 words. Do not return JSON —
+Acknowledge their point but dismantle it. Answer with short, rational, direct & logical sentences, maximum 3 sentences per response. Do not return JSON —
 respond with plain argumentative text only."""
 
     try:

@@ -1,18 +1,22 @@
 import os
 import uuid
-import shutil
 import time
+import hashlib
+import asyncio
 
-from functools import lru_cache
+from datetime import datetime
 from pydantic import BaseModel
 from google import genai
-from google.genai import types
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, UploadFile, File, Form
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from supabase import create_client, Client
-from app.core.security import get_current_user
+
+from app.core.limiter import limiter
+from app.core.security import get_current_user, require_active_account
 from app.core.vector_store import get_workspace_vectorstore
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -21,6 +25,7 @@ router = APIRouter()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+gemini_key = os.getenv("GEMINI_API_KEY")
 
 ADMIN_ROLES = {"admin", "faculty"}
 
@@ -110,7 +115,7 @@ async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
 
 
 # ---------- SUPPORT TICKETS ----------
-# 🔴 FIX: Changed "status" to "ticket_status"
+# 🔴 Changed "status" to "ticket_status"
 @router.get("/tickets")
 async def get_tickets(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
@@ -125,7 +130,7 @@ async def get_tickets(current_user: dict = Depends(get_current_user)):
 async def resolve_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
-        # 🔴 FIX: Changed "status" to "ticket_status" here as well
+        # 🔴 Changed "status" to "ticket_status" here as well
         supabase.table("support_tickets").update({"status": "resolved"}).eq("id", ticket_id).execute()
         return {"status": "success"}
     except Exception as e:
@@ -133,120 +138,266 @@ async def resolve_ticket(ticket_id: str, current_user: dict = Depends(get_curren
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---------- KNOWLEDGE BASE UPLOAD (was UI-only, no backend wiring at all) ----------
- 
+# ---------- KNOWLEDGE BASE UPLOAD ----------
+# 🛡️ RAG 2.0 WORKER (Isolation, Fallback, Audit)
+
+def log_audit(action: str, resource: str, details: str, user_id: str):
+    """(18) Audit Log System"""
+    try:
+        supabase.table("audit_logs").insert({
+            "action": action,
+            "resource": resource,
+            "details": details,
+            "user_id": user_id,
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+    except:
+        pass # Silently fail audit logs to prevent main process crash
+
+# 🔴 RAG 2.0: Exponential Backoff Retry (429 Error Fix)
+@retry(
+    wait=wait_exponential(multiplier=2, min=4, max=60), 
+    stop=stop_after_attempt(10), 
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+def safe_add_documents(vectorstore, batch):
+    """Safely adds a batch to Pinecone with auto-retry on API limits."""
+    vectorstore.add_documents(batch)
+
+# 🔴 1. The Background RAG Worker (Only does heavy AI logic)
+async def enterprise_rag_ingestion(local_path: str, document_id: str, course_code: str, file_name: str):
+    try:
+        supabase.table("knowledge_base_documents").update({"status": "processing"}).eq("id", document_id).execute()
+        
+        loader = PyPDFLoader(local_path)
+        documents = loader.load()
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+        chunks = text_splitter.split_documents(documents)
+        total_chunks = len(chunks)
+
+        for chunk in chunks:
+            chunk.metadata["course_code"] = course_code
+            chunk.metadata["document_id"] = document_id
+
+        supabase.table("knowledge_base_documents").update({"total_chunks": total_chunks}).eq("id", document_id).execute()
+        vectorstore = get_workspace_vectorstore("global_knowledge_base")
+
+        BATCH_SIZE = 50 
+        processed = 0
+        for i in range(0, total_chunks, BATCH_SIZE):
+            batch = chunks[i:i + BATCH_SIZE]
+            try:
+                vectorstore.add_documents(batch)
+            except Exception as ai_err:
+                print(f"🔥 AI/Pinecone Crash Details: {ai_err}")
+                raise ai_err # Pass exact error to the Exception block below
+            
+            processed += len(batch)
+            supabase.table("knowledge_base_documents").update({"processed_chunks": processed}).eq("id", document_id).execute()
+            await asyncio.sleep(2)
+
+        supabase.table("knowledge_base_documents").update({"status": "active"}).eq("id", document_id).execute()
+
+    except Exception as e:
+        error_message = str(e)
+        print(f"🔴 RAG WORKER FAILED: {error_message}")
+        # Saves the exact error to DB so you can see it in UI tooltip
+        supabase.table("knowledge_base_documents").update({"status": "failed", "error_msg": error_message}).eq("id", document_id).execute()
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
+
+# 🔴 2. The Upload Route (Fast Foreground Upload)
 @router.post("/knowledge-base/upload")
+@limiter.limit("10/minute")
+
 async def upload_knowledge_base_doc(
+    request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     course_code: str = Form(...),
     doc_type: str = Form(...),
     current_user: dict = Depends(get_current_user),
 ):
     require_admin(current_user)
-    user_id = current_user.get("sub")
- 
-    if not file.filename.lower().endswith((".pdf", ".txt")):
-        raise HTTPException(status_code=400, detail="Only PDF or TXT files are supported.")
- 
     try:
-        # 1. Upload to Supabase Storage
         contents = await file.read()
+        file_hash = hashlib.sha256(contents).hexdigest()
+        
+        # Smart Deduplication Check
+        existing = supabase.table("knowledge_base_documents").select("id, status").eq("file_hash", file_hash).execute()
+        if existing.data:
+            if existing.data[0].get("status") in ["archived", "failed"]:
+                # Safe to delete previous ghost/failed record
+                supabase.table("knowledge_base_documents").delete().eq("id", existing.data[0]["id"]).execute()
+            else:
+                raise HTTPException(status_code=409, detail="Document already exists in Knowledge Base.")
+            
+        # 1. FAST UPLOAD TO SUPABASE (Fixes the View button & NULL bug)
         storage_path = f"knowledge_base/{course_code}/{uuid.uuid4()}_{file.filename}"
-        supabase.storage.from_("documents").upload(
-            storage_path, contents, {"content-type": file.content_type or "application/octet-stream"}
-        )
+        supabase.storage.from_("documents").upload(storage_path, contents, {"content-type": "application/pdf"})
         public_url = supabase.storage.from_("documents").get_public_url(storage_path)
- 
-        ## 🔴 2. REAL RAG IMPLEMENTATION: Chunk & Embed
+
+        # 2. Save locally for RAG Worker
         os.makedirs("uploads/knowledge_base", exist_ok=True)
         local_path = f"uploads/knowledge_base/{file.filename}"
         with open(local_path, "wb") as f:
             f.write(contents)
-            
-        if file.filename.lower().endswith(".pdf"):
-            loader = PyPDFLoader(local_path)
-            documents = loader.load()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-            chunks = text_splitter.split_documents(documents)
-            
-            # 🔴 FIX: Use your existing vector store function!
-            from app.core.vector_store import get_workspace_vectorstore
-            
-            # Save to a dedicated Global Knowledge Base space
-            vectorstore = get_workspace_vectorstore("global_knowledge_base")
-            vectorstore.add_documents(chunks)
 
-        # 3. Save metadata row
+        # 3. Insert into Database securely
+        document_id = str(uuid.uuid4())
         insert_res = supabase.table("knowledge_base_documents").insert({
-            "id": str(uuid.uuid4()),
-            "uploaded_by": user_id,
+            "id": document_id,
+            "uploaded_by": current_user.get("sub"),
             "course_code": course_code,
             "doc_type": doc_type,
             "filename": file.filename,
             "storage_path": storage_path,
-            "public_url": public_url,
-            "status": "processed",  # 🔴 Marked as Processed for RAG
+            "public_url": public_url,  # Crucial for View button
+            "file_hash": file_hash,
+            "status": "queued",
         }).execute()
+        
+        # 4. Trigger Background Worker
+        background_tasks.add_task(enterprise_rag_ingestion, local_path, document_id, course_code, file.filename)
  
-        return {
-            "status": "success",
-            "message": f"'{file.filename}' successfully processed, chunked, and memorized by AI.",
-            "document": insert_res.data[0] if insert_res.data else None,
-        }
+        return {"status": "success", "message": "Document queued for processing.", "document": insert_res.data[0]}
     except Exception as e:
-        print(f"upload_knowledge_base_doc error: {e}")
+        print(f"Upload Route Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
- 
+
+# ==========================================
+# 📊 RAG 2.0 GET ENDPOINT
+# ==========================================
 @router.get("/knowledge-base")
 async def list_knowledge_base_docs(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
-        res = supabase.table("knowledge_base_documents").select("*").order("created_at", desc=True).execute()
+        res = supabase.table("knowledge_base_documents").select("*").neq("status", "archived").order("created_at", desc=True).execute()
         return {"status": "success", "data": res.data or []}
     except Exception as e:
-        print(f"list_knowledge_base_docs error: {e}")
-        return {"status": "success", "data": []}
- 
- 
-# ---------- NOTICE PUBLISHING (previously UI-only, no backend at all) ----------
- 
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# 🗑️ RAG 2.0 SOFT DELETE (Archive) ENDPOINT
+# ==========================================
+@router.put("/knowledge-base/{doc_id}/archive")
+async def archive_knowledge_base_doc(doc_id: str, current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
+    try:
+        # Changes status to archived so it doesn't show in UI and can be ignored by RAG
+        supabase.table("knowledge_base_documents").update({"status": "archived"}).eq("id", doc_id).execute()
+        return {"status": "success", "message": "Document archived."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 🗑️ RAG 2.0 DELETE ENDPOINT
+# ==========================================
+@router.delete("/knowledge-base/{doc_id}")
+async def delete_knowledge_base_doc(doc_id: str, current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
+    try:
+        # 1. Fetch file path from DB
+        doc = supabase.table("knowledge_base_documents").select("storage_path").eq("id", doc_id).execute()
+        
+        # 2. 🔴 SAFELY Delete from Supabase Storage (Ignore if already deleted manually)
+        if doc.data:
+            storage_path = doc.data[0].get("storage_path")
+            if storage_path:
+                try:
+                    supabase.storage.from_("documents").remove([storage_path])
+                except Exception as e:
+                    print(f"Storage Warning: File already missing or error - {e}")
+
+        # 3. Delete from Database
+        supabase.table("knowledge_base_documents").delete().eq("id", doc_id).execute()
+        
+        return {"status": "success", "message": "Document permanently deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+class NoticeRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    raw_text: str
+
+# ---------- NOTICE PUBLISHING  ----------
+@router.post("/notices")
+@router.post("/notices/")
+@limiter.limit("10/minute")
+
+async def generate_notice(
+    request: NoticeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ফ্যাকাল্টির দেওয়া সাধারণ টেক্সট বা ইনস্ট্রাকশনকে প্রফেশনাল বাইলিঙ্গুয়াল (বাংলা+ইংরেজি) দাপ্তরিক নোটিশে রূপান্তর করবে
+    """
+    # 🔴 Automatically find which key the frontend actually sent
+    user_input = request.raw_text or request.content or request.text
+    
+    if not user_input or not user_input.strip():
+        raise HTTPException(status_code=400, detail="Please provide the text/content first!")
+
+    prompt = f"""You are the official Administrative AI of the university department. 
+Convert the following casual message or instruction into a highly formal, professional academic notice in BOTH English and Bengali.
+
+Raw instruction from Teacher: "{request.raw_text}"
+
+Please format strictly as follows:
+### 📝 Official Notice (English)
+[Write the formal English notice here, maintaining professional university tone]
+
+### 📝 দাপ্তরিক বিজ্ঞপ্তি (বাংলা)
+[Write the formal Bengali translation of the notice here]
+"""
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return {"status": "success", "result": response.text}
+    except Exception as e:
+        print(f"Notice Gen Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate formal notice.")
+
+
 @router.post("/notices/publish")
 async def publish_notice(
     title: str = Form(...),
-    category: str = Form(...),
-    publish_date: str = Form(...),
-    file: Optional[UploadFile] = File(None),
-    current_user: dict = Depends(get_current_user),
+    date: str = Form(...),
+    type: str = Form(...),
+    file: UploadFile = File(None),
+    current_user: dict = Depends(get_current_user)
 ):
     require_admin(current_user)
-    user_id = current_user.get("sub")
- 
     try:
-        attachment_url = None
+        file_url = None
+        # If admin uploads a PDF with the notice
         if file:
-            storage_path = f"notices/{uuid.uuid4()}_{file.filename}"
             contents = await file.read()
-            supabase.storage.from_("documents").upload(
-                storage_path, contents, {"content-type": file.content_type or "application/octet-stream"}
-            )
-            attachment_url = supabase.storage.from_("documents").get_public_url(storage_path)
- 
-        insert_res = supabase.table("notices").insert({
+            ext = os.path.splitext(file.filename)[1]
+            safe_name = f"notices/{uuid.uuid4().hex}{ext}"
+            supabase.storage.from_("public_assets").upload(safe_name, contents, {"content-type": file.content_type})
+            file_url = supabase.storage.from_("public_assets").get_public_url(safe_name)
+
+        # Save to database
+        supabase.table("department_notices").insert({
             "id": str(uuid.uuid4()),
-            "published_by": user_id,
             "title": title,
-            "category": category,
-            "publish_date": publish_date,
-            "attachment_url": attachment_url,
+            "date": date,
+            "type": type,
+            "file_url": file_url,
         }).execute()
- 
-        return {
-            "status": "success",
-            "message": "Notice published to Department Hub.",
-            "notice": insert_res.data[0] if insert_res.data else None,
-        }
+        
+        return {"status": "success", "message": "Notice published successfully"}
     except Exception as e:
-        print(f"publish_notice error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
  
  
@@ -261,6 +412,48 @@ async def list_notices():
     except Exception as e:
         print(f"list_notices error: {e}")
         return {"status": "success", "data": []}
+
+
+@router.post("/notices/{notice_id}/approve")
+async def approve_notice_and_memorize(
+    notice_id: str, 
+    background_tasks: BackgroundTasks, 
+    current_user: dict = Depends(get_current_user)
+):
+    require_admin(current_user)
+    try:
+        # 1. Fetch Notice Details
+        notice = supabase.table("department_notices").select("*").eq("id", notice_id).execute()
+        if not notice.data:
+            raise HTTPException(status_code=404, detail="Notice not found")
+        
+        notice_data = notice.data[0]
+        
+        # 2. Update Status to Approved
+        supabase.table("department_notices").update({"status": "approved"}).eq("id", notice_id).execute()
+
+        # 3. Create a temporary text file for the RAG worker
+        temp_notice_path = f"/tmp/notice_{notice_id}.txt"
+        with open(temp_notice_path, "w", encoding="utf-8") as f:
+            f.write(f"NOTICE TITLE: {notice_data['title']}\n")
+            f.write(f"DATE: {notice_data.get('created_at', '')}\n\n")
+            f.write(f"CONTENT:\n{notice_data.get('content', 'Attached PDF Notice')}\n")
+
+        # 4. Trigger the exact same RAG pipeline used for PDFs!
+        # The AI will now process and memorize this notice.
+        background_tasks.add_task(
+            enterprise_rag_ingestion,
+            local_path=temp_notice_path,
+            document_id=notice_id,
+            course_code="NOTICE_BOARD", # Scope isolation for notices
+            file_name=f"Notice: {notice_data['title']}",
+            file_bytes=b"", # Empty bytes as we read from text
+            user_id=current_user.get("sub")
+        )
+
+        return {"status": "success", "message": "Notice Approved and sent to AI Knowledge Base."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
  
  
 # ---------- PENDING FACULTY APPROVAL QUEUE ----------
@@ -284,7 +477,7 @@ async def list_pending_faculty(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
  
  
-# 🔴 FIX: Properly extract the User object from the UserResponse
+# 🔴 Properly extract the User object from the UserResponse
 @router.post("/pending-faculty/{target_user_id}/approve")
 async def approve_faculty(target_user_id: str, current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
@@ -303,6 +496,7 @@ async def approve_faculty(target_user_id: str, current_user: dict = Depends(get_
     except Exception as e:
         print(f"approve_faculty error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/pending-faculty/{target_user_id}/reject")
 async def reject_faculty(target_user_id: str, current_user: dict = Depends(get_current_user)):
@@ -325,11 +519,13 @@ async def reject_faculty(target_user_id: str, current_user: dict = Depends(get_c
 
     
 class SupportTicketRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     ticket_query: str
     student_department: str
 
 @router.post("/support/auto-reply")
-async def generate_support_reply(req: SupportTicketRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def generate_support_reply(req: SupportTicketRequest, request: Request, current_user: dict = Depends(get_current_user)):
     role = current_user.get("user_metadata", {}).get("role", "guest").lower()
     if role not in ["admin", "faculty"]:
         raise HTTPException(status_code=403, detail="Clearance required.")

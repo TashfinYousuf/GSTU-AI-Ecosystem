@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Gamepad2, Star, Flame, CheckCircle, XCircle, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2 } from "lucide-react";
+import { Gamepad2, Star, Flame, CheckCircle, XCircle, Trophy, LineChart, Swords, Brain, ShieldAlert, Loader2, Send } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import { fetchAPI } from "../../utils/api";
 import { createClient } from "../../utils/supabase/client";
 
@@ -77,7 +78,7 @@ export default function InteractiveStudyHubPage() {
     setIsGenerating(true);
     setCards([]);
     try {
-      const res = await fetchAPI("/study/gamify", {
+      const res = await fetchAPI("/study/flashcards/generate", {
         method: "POST",
         body: JSON.stringify({ topic, feature_type: "flashcards", extra_data: { difficulty } })
       });
@@ -100,9 +101,9 @@ export default function InteractiveStudyHubPage() {
   const handlePredictExam = async () => {
     setIsPredicting(true);
     try {
-      const res = await fetchAPI("/study/gamify", {
+      const res = await fetchAPI("/powerups/predict", {
         method: "POST",
-        body: JSON.stringify({ topic: courseCode, feature_type: "predictor", extra_data: {} })
+        body: JSON.stringify({ course_code: courseCode })
       });
       if (res.data && res.data.predictions) {
         setPredictions(res.data.predictions);
@@ -216,13 +217,12 @@ export default function InteractiveStudyHubPage() {
     setIsDebating(true); 
 
     try {
-      // 🔴 FIX: Changed from /powerups/gamify to /study/gamify
-      const res = await fetchAPI("/study/gamify", {
+      const res = await fetchAPI("/powerups/gamify", {
         method: "POST",
         body: JSON.stringify({ 
           topic: currentInput, 
           feature_type: "debate", 
-          extra_data: { history: newHistory } 
+          extra_data: { history: newHistory, persona: aiPersona } 
         })
       });
 
@@ -252,9 +252,7 @@ export default function InteractiveStudyHubPage() {
     setIsDebating(true); 
     try {
       const transcript = debateHistory.map((m) => `${m.role}: ${m.content}`).join("\n");
-      
-      // 🔴 FIX: Changed endpoint to /study/gamify
-      const res = await fetchAPI("/study/gamify", {
+      const res = await fetchAPI("/powerups/gamify", {
         method: "POST",
         body: JSON.stringify({ 
           topic: "Evaluate this debate", 
@@ -283,10 +281,21 @@ export default function InteractiveStudyHubPage() {
     }
   };
   
+  // 🔴 Image Upload State & Type-Safe Handler
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+
+  const handleImageSelect = (file: File | null | undefined) => {
+    if (file) {
+      setSelectedImage(file);
+      // Optional: You can show a small UI toast that image is attached
+      console.log("Attached image for vision analysis:", file.name);
+    }
+  };
+
   if (isCheckingAccess) return null;
   if (isBlocked) {
     return (
-      <div className="min-h-screen bg-[#121212] flex flex-col items-center justify-center text-gray-400">
+      <div className="min-h-dvh bg-[#121212] flex flex-col items-center justify-center text-gray-400">
         <ShieldAlert className="w-12 h-12 mb-4 opacity-40" />
         <p>Interactive Study Hub is a student-only module.</p>
       </div>
@@ -294,7 +303,7 @@ export default function InteractiveStudyHubPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
+    <div className="min-h-dvh bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar">
       
       {/* Header & Badges */}
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -331,6 +340,7 @@ export default function InteractiveStudyHubPage() {
             <button onClick={() => setActiveTab("predictor")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "predictor" ? "bg-emerald-500/20 text-emerald-400" : "bg-[#1e1e1e] text-gray-400 hover:text-white"}`}>📈 Exam Predictor</button>
             <button onClick={() => setActiveTab("debate")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "debate" ? "bg-indigo-500/20 text-indigo-400" : "bg-[#1e1e1e] text-gray-400 hover:text-white"}`}>⚔️ Debate Arena</button>
             <button onClick={() => setActiveTab("battle")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "battle" ? "bg-amber-500/20 text-amber-400" : "bg-[#1e1e1e] text-gray-400 hover:text-white"}`}>🏆 Battle Mode</button>
+            <button onClick={() => setActiveTab("multimodal")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "multimodal" ? "bg-amber-500/20 text-orange-400" : "bg-[#1e1e1e] text-gray-400 hover:text-white"}`}>🖼 Multimodal</button>
           </div>
 
           {/* TAB 1: FLASHCARDS */}
@@ -407,7 +417,7 @@ export default function InteractiveStudyHubPage() {
 
           {/* TAB 2: EXAM PREDICTOR */}
           {activeTab === "predictor" && (
-            <div className="bg-[#1e293b]/40 border border-emerald-500/20 rounded-3xl p-8 animate-in fade-in min-h-[500px]">
+            <div className="bg-[#1e293b]/40 border border-emerald-500/20 rounded-3xl p-8 animate-in fade-in min-h-125">
               <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><LineChart className="w-5 h-5 text-emerald-400"/> Predictive Exam Analytics</h3>
               <p className="text-sm text-gray-400 mb-6">AI analyzes past papers and current geopolitical trends from the Knowledge Base to predict upcoming exam topics.</p>
               <div className="flex gap-4 mb-8">
@@ -541,6 +551,34 @@ export default function InteractiveStudyHubPage() {
               </button>
             </div>
           )}
+
+          {/* TAB 5: Multimodal Tab */}
+          {activeTab === "multimodal" && (
+            <div className="relative flex items-center bg-[#0f172a] border border-white/10 rounded-2xl p-1">
+              
+              {/* Image Upload Button */}
+              <label className="p-3 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl cursor-pointer transition-colors">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => handleImageSelect(e.target.files?.[0])} 
+                />
+                <ImagePlus className="w-5 h-5" />
+              </label>
+              
+              <input 
+                type="text" 
+                placeholder="Ask anything or upload an image for vision analysis..." 
+                className="flex-1 bg-transparent text-white px-3 py-3 focus:outline-none text-sm"
+              />
+              
+              <button className="bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl transition-colors">
+                <Send className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
 
         </div>
 

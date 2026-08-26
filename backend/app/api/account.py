@@ -23,11 +23,13 @@ ROLE_CHANGE_ALLOWLIST = {
 
 
 class ProfileUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
 
 
 class RoleUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
     target_user_id: Optional[str] = None  # omit to change your own role
     role: str  # "student" | "faculty" | "admin"
 
@@ -102,7 +104,7 @@ async def update_role(payload: RoleUpdate, current_user: dict = Depends(get_curr
             existing_meta = target_user.get("user_metadata", {}) or {}
 
         supabase.auth.admin.update_user_by_id(target_id, {
-            "user_metadata": {**existing_meta, "role": payload.role}
+            "app_metadata": {**existing_meta, "role": payload.role}
         })
         return {"status": "success", "message": f"Role updated to {payload.role}."}
     except Exception as e:

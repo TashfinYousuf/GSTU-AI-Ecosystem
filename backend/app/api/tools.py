@@ -9,6 +9,7 @@ from app.core.security import get_current_user
 router = APIRouter()
 
 class PDFRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     title: str
     content: str
 

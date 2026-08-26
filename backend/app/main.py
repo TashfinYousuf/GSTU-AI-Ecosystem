@@ -5,11 +5,13 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.api import academic, account, admin, auth, billing, chat, department, documents, faculty, knowledge, logger, mentor, payment, powerups, scholar, study, tools, workspaces
+from app.api import academic, account, admin, auth, billing, chat, department, documents, faculty, knowledge, logger, mentor, powerups, scholar, study, tools, workspaces
+
 # 🔴 1. Import SlowAPI for Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from app.core.limiter import limiter
 
 # 🔴 2. Initialize Limiter (Tracks by User IP)
 limiter = Limiter(key_func=get_remote_address)
@@ -25,7 +27,6 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # 🔴 3. Add Exception Handler for Rate Limits
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -76,8 +77,6 @@ app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["Knowledg
 app.include_router(logger.router, prefix="/api/v1/logger", tags=["Study Logger"])
 
 app.include_router(mentor.router, prefix="/api/v1/mentor", tags=["Agentic Mentor"])
-
-app.include_router(payment.router, prefix="/api/v1/payment", tags=["Enterprise Payment"])
 
 app.include_router(powerups.router, prefix="/api/v1/powerups", tags=["Power-Ups & Gen-Z Tools"])
 

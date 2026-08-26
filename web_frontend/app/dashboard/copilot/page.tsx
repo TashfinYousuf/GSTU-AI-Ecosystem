@@ -68,7 +68,7 @@ export default function AcademicCopilotPage() {
     try {
       if (activeTab === "routine") {
         // 🔴 Fix: Matched with Backend Endpoint (/study/routine/generate)
-        const res = await fetchAPI("/study/routine/generate", {
+        const res = await fetchAPI("/study/routine", {
           method: "POST",
           body: JSON.stringify({ 
             focus_area: inputTopic, 
@@ -146,8 +146,9 @@ export default function AcademicCopilotPage() {
     checkAccess();
   }, []);
 
+  
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans transition-all duration-300">
+    <div className="min-h-dvh bg-[#121212] text-gray-200 p-8 md:p-12 font-sans transition-all duration-300">
       
       {/* Premium Header */}
       <div className="mb-10">

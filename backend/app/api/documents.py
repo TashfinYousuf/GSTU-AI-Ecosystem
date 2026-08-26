@@ -1,8 +1,11 @@
 import os
 import io
+
 from pypdf import PdfReader
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from supabase import create_client, Client
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -12,8 +15,15 @@ from app.models.user import Document
 from app.core.vector_store import get_workspace_vectorstore
 
 router = APIRouter()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+# MUST use SERVICE_ROLE_KEY to update user metadata and bypass RLS
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") 
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
 UPLOAD_DIR = "./temp_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 @router.post("/upload")
 async def upload_document_to_memory(
@@ -22,8 +32,12 @@ async def upload_document_to_memory(
     current_user: dict = Depends(get_current_user)
 ):
     """Zero-Footprint RAG: ফাইল সার্ভারের ফোল্ডারে সেভ না করে সরাসরি মেমোরি থেকে ডাটাবেসে পাঠাবে"""
-    if not current_user.get("sub"):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = current_user.get("sub")
+    
+    # 🔴 IDOR Ownership Check
+    workspace = supabase.table("workspaces").select("user_id").eq("id", workspace_id).execute()
+    if not workspace.data or workspace.data[0].get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this workspace")
         
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")

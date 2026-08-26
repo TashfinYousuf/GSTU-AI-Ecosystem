@@ -112,7 +112,7 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url('/background_pic.png')" }}>
+    <div className="min-h-dvh flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url('/background_pic.png')" }}>
       
       {/* Heavy Blur Overlay */}
       <div className="absolute inset-0 bg-[#0f1115]/85 backdrop-blur-md"></div>

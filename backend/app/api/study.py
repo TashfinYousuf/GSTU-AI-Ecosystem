@@ -1,10 +1,13 @@
 import os
 import json
 import datetime
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from google import genai
 from supabase import create_client, Client
+
 from app.core.security import get_current_user, get_optional_current_user
 from app.services.core_agents import generate_genz_features
 
@@ -16,23 +19,27 @@ gemini_key = os.getenv("GEMINI_API_KEY")
 
 router = APIRouter(tags=["Study Hub"])
 
+logger = logging.getLogger(__name__)
 
 class StudyRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
     feature_type: str
     extra_data: dict = {}
 
 
 class RoutineRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     weak_topics: list[str] = []
     strong_topics: list[str] = []
     target_cgpa: float = 3.5
 
 
 class AssessmentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
     difficulty: str = "Medium"
-
+    role: str = "Student"
 
 def call_gemini_json(prompt: str) -> dict:
     client = genai.Client(api_key=gemini_key)
@@ -154,6 +161,15 @@ async def get_saved_routine(current_user: dict = Depends(get_optional_current_us
         return {"status": "success", "data": None}
 
 
+@router.delete("/routine")
+async def delete_saved_routine(current_user: dict = Depends(get_optional_current_user)):
+    user_id = current_user.get("sub") if current_user else "guest_session"
+    if user_id == "guest_session":
+        raise HTTPException(status_code=401, detail="Login required.")
+    supabase.table("smart_routines").delete().eq("user_id", user_id).execute()
+    return {"status": "success", "message": "Routine cleared."}
+
+
 @router.post("/assessment")
 async def generate_mock_exam(req: AssessmentRequest, current_user: dict = Depends(get_optional_current_user)):
     user_id = current_user.get("sub") if current_user else "guest_session"
@@ -161,7 +177,7 @@ async def generate_mock_exam(req: AssessmentRequest, current_user: dict = Depend
 
     import random
     import datetime
-    seed = random.randint(1000, 99999) # 🔴 Ensures fresh questions every time!
+    seed = random.randint(1000, 99999) # 🔴 Ensures fresh questions every time
     current_time = datetime.datetime.now().isoformat()
 
     if req.role in ["Faculty", "Admin"]:
@@ -229,8 +245,9 @@ def get_effective_tier(user_id: str):
             if days_used <= 30:
                 return "pro_trial", 100 # They get Pro limits!
                 
-        return "free", 50 # Trial expired, downgrade to free
-    except:
+        pass
+    except Exception as e:
+        logger.error(f"Trial check failed for user, defaulting to free: {e}")
         return "free", 50
 
 
@@ -298,6 +315,7 @@ async def submit_flashcard_answer(is_correct: bool, current_user: dict = Depends
         return {"status": "success", "xp_delta": xp_delta, "total_xp": new_xp}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ==================================================================
 # ⚔️ DEBATE ARENA ENGINE (Authoritative Timers)

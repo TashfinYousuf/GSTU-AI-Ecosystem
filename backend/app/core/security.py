@@ -68,12 +68,12 @@ async def require_active_account(current_user: dict = Depends(get_current_user))
         async def chat_stream(request: ChatRequest, current_user: dict = Depends(require_active_account)):
             ...
     """
-    meta = current_user.get("user_metadata", {}) or {}
-    role = meta.get("role", "student")
+    meta = current_user.get("app_metadata", {}) or {}
+    role = current_user.get("app_metadata", {}).get("role")
     status = meta.get("account_status", "active")
  
-    if role == "admin":
-        return current_user
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
  
     if status == "pending":
         raise HTTPException(status_code=403, detail="Your faculty account is pending admin approval.")

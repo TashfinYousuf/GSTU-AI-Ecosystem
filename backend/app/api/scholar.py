@@ -6,6 +6,7 @@ from app.services.core_agents import generate_research_assistance, generate_genz
 router = APIRouter(tags=["Scholar Hub"])
 
 class ActionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str = None
     task_mode: str = None
     question: str = None

@@ -1,7 +1,7 @@
 import { createClient } from "./supabase/client";
 
 // 🔴 Update this to your live Render Backend URL
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://gstu-ai-backend.onrender.com/api/v1";
+export const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://gstu-ai-backend.onrender.com/api/v1";
 
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const supabase = createClient();

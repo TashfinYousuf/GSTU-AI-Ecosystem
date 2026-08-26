@@ -1,13 +1,15 @@
 import os
-import shutil
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from pydantic import BaseModel
+
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User, Workspace
 from app.schemas.user import UserResponse
 from app.core.security import get_current_user
+from app.core.database import supabase
 from supabase import create_client, Client
 
 router = APIRouter()
@@ -15,15 +17,18 @@ router = APIRouter()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 # MUST use SERVICE_ROLE_KEY to update user metadata and bypass RLS
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") 
-supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 router = APIRouter()
 
 class SyncUserResponse(BaseModel):
+    model_config = {"extra": "forbid"}
     message: str
     is_new_user: bool
     # user: UserResponse
+    
 class RoleUpdateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     role: str
 
 @router.post("/sync")
@@ -79,46 +84,42 @@ def sync_user_with_db(
     }
 
 
-# 🔴 ROLE UPDATE ENDPOINT (Resolves the 404 Error)
-@router.patch("/role")
-async def update_user_role(req: RoleUpdateRequest, current_user: dict = Depends(get_current_user)):
-    user_id = current_user.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    try:
-        # Update user metadata via Supabase Admin API
-        res = supabase_admin.auth.admin.update_user_by_id(
-            user_id, 
-            {"user_metadata": {"role": req.role}}
-        )
-        return {"status": "success", "message": f"Role updated to {req.role}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 # 🔴 AVATAR UPLOAD ENDPOINT
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_FILE_SIZE = 2 * 1024 * 1024 # 2 MB
+
 @router.post("/avatar")
 async def upload_avatar(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    user_id = current_user.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401)
-        
     try:
-        # Create directory if not exists
-        os.makedirs("uploads/avatars", exist_ok=True)
-        file_path = f"uploads/avatars/{user_id}_{file.filename}"
+        user_id = current_user.get("sub")
         
-        # Save file locally (In production, use AWS S3 or Supabase Storage)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        avatar_url = f"http://127.0.0.1:8000/{file_path}"
+        # 1. Check Extension
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="Only images (JPG, PNG, WEBP) are allowed")
         
-        # Update user metadata with new avatar URL
-        supabase_admin.auth.admin.update_user_by_id(
-            user_id, 
-            {"user_metadata": {"avatar_url": avatar_url}}
+        # 2. Check Size
+        contents = await file.read()
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large (Max 2MB)")
+
+        # 3. Secure Filename
+        safe_filename = f"{user_id}_{uuid.uuid4().hex}{ext}"
+        storage_path = f"avatars/{safe_filename}"
+        
+        # 4. Upload to Supabase
+        supabase.storage.from_("public_assets").upload(
+            storage_path, 
+            contents, 
+            {"content-type": file.content_type or "image/jpeg"}
         )
-        return {"status": "success", "avatar_url": avatar_url}
+        
+        # 5. Get Public URL
+        public_url = supabase.storage.from_("public_assets").get_public_url(storage_path)
+
+        return {"status": "success", "avatar_url": public_url}
+        
     except Exception as e:
+        # 🔴 FIX: Catch all errors and return cleanly, so it doesn't cause a CORS/Fetch error in browser
+        print(f"Avatar Upload Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -5,24 +5,17 @@ from app.core.security import get_current_user
 router = APIRouter(tags=["Enterprise Billing"])
 
 class BkashRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     trx_id: str
     amount: float = 99.0
 
-# Mock DB for demonstration (Pro User Logic)
-MOCK_USER_DB = {
-    "subscription_tier": "free", # 'free' or 'pro_scholar'
-    "lifetime_messages": 142,
-    "lifetime_pdfs": 12,
-    "reward_credits": 50
-}
-
-@router.get("/status")
-def get_billing_status(current_user: dict = Depends(get_current_user)):
+# @router.get("/status")
+# def get_billing_status(current_user: dict = Depends(get_current_user)):
     """ইউজারের বর্তমান সাবস্ক্রিপশন টায়ার এবং লিমিট চেক করা"""
-    if not current_user.get("sub"):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    # if not current_user.get("sub"):
+        # raise HTTPException(status_code=401, detail="Unauthorized")
     
-    return {"status": "success", "data": MOCK_USER_DB}
+    # return {"status": "success", "data": MOCK_USER_DB}
 
 @router.post("/bkash/submit")
 def submit_manual_bkash(

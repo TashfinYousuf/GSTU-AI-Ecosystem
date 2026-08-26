@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base # database.py থেকে Base ইমপোর্ট করা হয়েছে
+from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"

@@ -370,20 +370,21 @@ def generate_genz_features(topic: str, feature_type: str, extra_data: dict = Non
             
             system_prompt = f"You are an AI creating a highly addictive MCQ flashcard game. Difficulty: {difficulty}. Seed: {seed}\n"
             system_prompt += f""" CRITICAL RULES:
-            1. Generate EXACTLY {card_count} UNIQUE questions. 
-            2. EXPLORE OBSCURE SUB-TOPICS. DO NOT ask the most common examples. Ensure 100% variety.
-            3. Make questions direct and short (Max 1-2 lines).
-            4. Output EXACTLY in this JSON format without markdown ticks:
-            {{
-                "flashcards": [
-                    {{
-                        "q": "Short question here?", 
-                        "options": ["A", "B", "C", "D"], 
-                        "correct_option": "A", 
-                        "explanation": "1 short sentence."
-                    }}
-                ]
-            }}"""
+1. Generate EXACTLY {card_count} UNIQUE questions.
+2. EXPLORE OBSCURE SUB-TOPICS. DO NOT ask the most common examples. Ensure 100% variety.
+3. Make questions direct and short (Max 1-2 lines).
+4. `correct_option` MUST be an EXACT, character-for-character copy of one of the four strings in `options` — never a letter like "A" or "B".
+5. Output EXACTLY in this JSON format without markdown ticks:
+{{
+    "flashcards": [
+        {{
+            "q": "Which treaty ended the Thirty Years' War?",
+            "options": ["Treaty of Westphalia", "Treaty of Versailles", "Congress of Vienna", "Treaty of Utrecht"],
+            "correct_option": "Treaty of Westphalia",
+            "explanation": "1 short sentence."
+        }}
+    ]
+}}"""
             messages = [SystemMessage(content=system_prompt.replace("{{", "{").replace("}}", "}")), HumanMessage(content=f"Topic: {topic}")]
 
 

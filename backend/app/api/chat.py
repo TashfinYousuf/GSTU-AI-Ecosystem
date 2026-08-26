@@ -2,16 +2,19 @@ import os
 import uuid
 import re
 import asyncio
+
 from typing import Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
 from google import genai
 from groq import Groq
 from google.genai import types
 from dotenv import load_dotenv
 
+from app.core.limiter import limiter
 from app.core.security import get_current_user, get_optional_current_user
 from app.core.vector_store import get_workspace_vectorstore
 
@@ -41,35 +44,42 @@ router = APIRouter(tags=["AI Engine"])
 
 
 class ChatRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     message: str
     workspace_id: str
     model: str = "llama-3.3-70b-versatile" # 🔴 Added Support for multi-model routing
 
 class ProjectCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     name: str = "New Project"
 
 
 class ProjectUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
     name: Optional[str] = None
 
 
 class WorkspaceCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     project_id: Optional[str] = None
 
 
 class WorkspaceUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
     title: Optional[str] = None
     is_starred: Optional[bool] = None
     project_id: Optional[str] = None
     clear_project: Optional[bool] = False
 
 class SupportQuery(BaseModel):
+    model_config = {"extra": "forbid"}
     message: str
 
 # ---------- PROJECTS ----------
 
 @router.post("/projects")
-async def create_project(payload: ProjectCreate, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def create_project(payload: ProjectCreate, request: Request, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -86,8 +96,11 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    proj_res = supabase.table("projects").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
-    chat_res = supabase.table("workspaces").select("project_id").eq("user_id", user_id).execute()
+    proj_res = await asyncio.to_thread(
+    lambda: supabase.table("projects").select("*").eq("user_id", user_id).order("created_at", desc=True).execute() )
+
+    chat_res = await asyncio.to_thread(
+    lambda: supabase.table("workspaces").select("project_id").eq("user_id", user_id).execute() )
 
     counts = {}
     for row in (chat_res.data or []):
@@ -129,7 +142,9 @@ async def delete_project(project_id: str, current_user: dict = Depends(get_curre
 
 # 1. CREATE WORKSPACE
 @router.post("/workspaces")
-async def create_workspace(payload: WorkspaceCreate = WorkspaceCreate(), current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+
+async def create_workspace(request: Request, payload: WorkspaceCreate = WorkspaceCreate(), current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -326,11 +341,12 @@ async def get_history(workspace_id: str, current_user: dict = Depends(get_curren
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_optional_current_user)):
+@limiter.limit("15/minute")
+async def chat_stream(request: Request, chat_req: ChatRequest, current_user: dict = Depends(get_optional_current_user)):
     user_id = current_user.get("sub") if current_user else "guest_session"
     role = current_user.get("user_metadata", {}).get("role", "guest").lower() if current_user else "guest"
 
-    latest_q = request.message.strip()
+    latest_q = chat_req.message.strip()
 
     # =====================================================================
     # 🛡️ 1. SECURITY & INTENT ROUTER (Bypasses AI/DB for speed)
@@ -351,21 +367,21 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
     # =====================================================================
     # 💾 2. DATABASE PERSISTENCE & WORKSPACE MANAGEMENT
     # =====================================================================
-    is_global_bot = request.workspace_id == "global-assistant-0000"
+    is_global_bot = chat_req.workspace_id == "global-assistant-0000"
 
     if user_id != "guest_session" and not is_global_bot:
-        ws_check = supabase.table("workspaces").select("*").eq("id", request.workspace_id).eq("user_id", user_id).execute()
+        ws_check = supabase.table("workspaces").select("*").eq("id", chat_req.workspace_id).eq("user_id", user_id).execute()
         if not ws_check.data:
             raise HTTPException(status_code=404, detail="Workspace not found.")
 
         # Auto-title the workspace from the first message
         if ws_check.data[0].get("name") == "New Chat":
             new_name = latest_q[:35] + "..." if len(latest_q) > 35 else latest_q
-            supabase.table("workspaces").update({"name": new_name}).eq("id", request.workspace_id).execute()
+            supabase.table("workspaces").update({"name": new_name}).eq("id", chat_req.workspace_id).execute()
 
         # Save user message
         supabase.table("messages").insert({
-            "workspace_id": request.workspace_id,
+            "workspace_id": chat_req.workspace_id,
             "role": "user",
             "content": latest_q
         }).execute()
@@ -373,7 +389,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
         # Bump updated_at so Recents UI updates perfectly!
         supabase.table("workspaces").update({
             "updated_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", request.workspace_id).execute()
+        }).eq("id", chat_req.workspace_id).execute()
 
 
     # =====================================================================
@@ -390,7 +406,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
         # RAG (unchanged)
         if not is_global_bot:
             try:
-                vectorstore = get_workspace_vectorstore(request.workspace_id)
+                vectorstore = get_workspace_vectorstore(chat_req.workspace_id)
                 docs = vectorstore.similarity_search(latest_q, k=4)
                 if docs:
                     db_context = "\n\n".join([f"Local Doc: {d.page_content}" for d in docs])
@@ -433,7 +449,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
         history_ctx = "No prior conversation."
         if not is_global_bot:
             try:
-                hist_res = supabase.table("messages").select("role, content").eq("workspace_id", request.workspace_id).order("created_at", desc=False).execute()
+                hist_res = supabase.table("messages").select("role, content").eq("workspace_id", chat_req.workspace_id).order("created_at", desc=False).execute()
                 if hist_res.data:
                     history_ctx = build_history_context(hist_res.data)
             except Exception as e:
@@ -481,7 +497,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
     4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, and Strategic Consequences.
     5. SEAMLESS INTEGRATION: Combine local theory with web updates naturally.
 
-    6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2].
+    6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2] and give the sources name in the Reference section.
     7. FORMATTING: Use bold text and bullet points for key terms. Always use bullet points or numbered lists when explaining multiple concepts. Add 2-3 follow up questions at the end of your response.
     8. SPACING: Add double line breaks between distinct points or sections.
     8. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
@@ -508,7 +524,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
         yield verifier_badge
 
         try:
-            selected_model = request.model.lower()
+            selected_model = chat_req.model.lower()
             if is_bengali:
                 selected_model = "gemini-2.5-flash"  # force Bengali to Gemini for script handling
 
@@ -551,7 +567,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
                     yield "\n\n⚠️ **OPENROUTER_API_KEY is missing!**"
                     return
                 client = openai.AsyncOpenAI(api_key=openrouter_key, base_url="https://openrouter.ai/api/v1")
-                response = await client.chat.completions.create(model=request.model, messages=[{"role": "user", "content": final_prompt}], stream=True)
+                response = await client.chat.completions.create(model=chat_req.model, messages=[{"role": "user", "content": final_prompt}], max_tokens=4096, stream=True)
                 async for chunk in response:
                     if chunk.choices[0].delta.content:
                         text = chunk.choices[0].delta.content
@@ -560,7 +576,10 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
                         await asyncio.sleep(0.01)
         except Exception as e:
             print(f"CRITICAL AI FAILURE: {e}")
-            yield "\n\n🚦 **Server Overloaded or Model Error!** Please wait 10 seconds and try again."
+            if "402" in str(e) or "credits" in str(e).lower():
+                yield "\n\n💳 **AI provider credits exhausted.** Please contact support."
+            else:
+                yield "\n\n🚦 **Server Overloaded or Model Error!** Please wait 10 seconds and try again."
             return
 
         # 🔴 FIX: citations were BUILT but never yielded — silently discarded every time.
@@ -583,7 +602,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
         if full_ai_response and user_id != "guest_session" and not is_global_bot:
             try:
                 supabase.table("messages").insert({
-                    "workspace_id": request.workspace_id, "role": "assistant", "content": full_ai_response
+                    "workspace_id": chat_req.workspace_id, "role": "assistant", "content": full_ai_response
                 }).execute()
             except Exception as db_err:
                 print(f"Failed to save AI msg: {db_err}")
@@ -601,7 +620,9 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_opt
 
 
 @router.post("/ecosystem-support")
-async def ecosystem_support_bot(req: SupportQuery, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+
+async def ecosystem_support_bot(request: Request, req: SupportQuery, current_user: dict = Depends(get_current_user)):
     system_prompt = (
         "You are 'GSTU Helpdesk', an AI assistant for the GSTU Ecosystem. "
         "Answer questions about how to use the dashboard, features, or general university inquiries concisely. "
@@ -621,7 +642,9 @@ async def ecosystem_support_bot(req: SupportQuery, current_user: dict = Depends(
 
 # 🔴 GLOBAL SEARCH ENGINE
 @router.get("/search")
-async def global_search(q: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+
+async def global_search(request: Request, q: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     if not user_id: raise HTTPException(status_code=401)
     

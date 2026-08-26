@@ -40,7 +40,7 @@ export default function ScholarHubPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar transition-all duration-300">
+    <div className="min-h-dvh bg-[#121212] text-gray-200 p-8 md:p-12 font-sans overflow-y-auto custom-scrollbar transition-all duration-300">
       
       {/* Premium Header */}
       <div className="mb-10">

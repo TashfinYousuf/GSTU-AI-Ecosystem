@@ -71,41 +71,61 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
-    setIsUploadingAvatar(true);
     try {
+      const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
+      if (!session) throw new Error("Authentication session missing.");
 
       const formData = new FormData();
       formData.append("file", file);
 
-      // 🔴 STRICT ABSOLUTE URL: Bypasses Next.js relative routing bugs
-      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/avatar", {
+      // 🔴 FIX: Sanitize URL (Prevent double slash "//" bugs)
+      let apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      if (apiUrl.endsWith('/')) {
+        apiUrl = apiUrl.slice(0, -1);
+      }
+      
+      const res = await fetch(`${apiUrl}/api/v1/auth/avatar`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${session.access_token}` },
-        body: formData, 
+        headers: { 
+          "Authorization": `Bearer ${session.access_token}`
+          // ⚠️ DO NOT manually set "Content-Type" here. 
+          // The browser must set it automatically for FormData with the correct boundary!
+        },
+        body: formData,
       });
 
-      if (!res.ok) throw new Error("Upload failed on backend");
-      
-      const data = await res.json();
+      if (res.ok) {
+        const data = await res.json();
+        
+        if (data.avatar_url) {
+          // Supabase Auth এর user_metadata তে নতুন ছবিটা সেভ করবে
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: { avatar_url: data.avatar_url }
+          });
 
-      if (res.ok && data.avatar_url) {
-        setUserData(prev => ({ ...prev, avatarUrl: data.avatar_url }));
-        setIsProfileMenuOpen(false);
+          if (updateError) {
+            console.error("Failed to update session:", updateError);
+            alert("Upload successful, but failed to update profile display.");
+            return;
+          }
+
+          // 🔴 FORCE UI REFRESH: সেশন আপডেট হওয়ার সাথে সাথে পুরো UI কে নতুন ছবি চেনানোর জন্য
+          alert("Profile picture updated successfully! Applying changes...");
+          window.location.reload(); 
+        }
       } else {
-        alert(data.detail || "Avatar upload failed.");
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Server Error:", errorData);
+        alert(`Failed to upload: ${errorData.detail || "Server rejected the file."}`);
       }
-    } catch (err) {
-      console.error("Avatar upload failed:", err);
-      alert("Network error during avatar upload.");
-    } finally {
-      setIsUploadingAvatar(false);
-      e.target.value = "";
+    } catch (error) {
+      console.error("Avatar upload network error:", error);
+      alert("Network error: Make sure your backend API URL is correctly set in Vercel environment variables.");
     }
   };
 
@@ -978,7 +998,7 @@ useEffect(() => {
                 <div className="flex flex-col min-w-0 pr-2">
                   <span className="text-[13px] font-bold text-gray-200 leading-tight truncate">{userData.name.split(' ')[0]}</span>
                   <span className={`text-[9px] font-bold uppercase tracking-wider ${userData.tier === 'pro_scholar' ? 'text-indigo-400' : 'text-gray-500'}`}>
-                    {userData.tier === 'pro_scholar' ? 'PRO SCHOLAR' : 'FREE PLAN'}
+                    {userData.tier === 'pro_scholar' ? 'PRO' : 'FREE'}
                   </span>
                 </div>
               </div>
@@ -1073,6 +1093,12 @@ useEffect(() => {
                             <div className="text-4xl font-black text-white mb-1">{userStats.documents_analyzed}</div>
                             <div className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">PDFs Analyzed</div>
                           </div>
+                          <div className="bg-gradient-to-r from-rose-500/10 to-orange-500/10 border border-rose-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-orange-400" />
+                            <span className="text-xs font-bold text-orange-300">
+                              {daysLeftInTrial > 0 ? `${daysLeftInTrial} Days Pro Trial` : "Trial Expired"}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -1099,7 +1125,7 @@ useEffect(() => {
 
                           {userData.tier === 'pro_scholar' ? (
                             <button disabled className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 font-bold">
-                              <CheckCircle className="w-4 h-4" /> You are Pro
+                              <CheckCircle className="w-4 h-4" /> Pro
                             </button>
                           ) : (
                             <>

@@ -13,9 +13,8 @@ class WorkspaceResponse(BaseModel):
     id: str
     name: str
     description: str
+    model_config = {"from_attributes": True}
 
-    class Config:
-        from_attributes = True
 
 @router.get("", response_model=List[dict])
 @router.get("/")

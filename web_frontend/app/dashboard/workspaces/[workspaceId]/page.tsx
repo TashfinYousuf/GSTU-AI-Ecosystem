@@ -7,13 +7,17 @@ import { createClient } from "../../../utils/supabase/client";
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { fetchAPI } from "../../../utils/api";
+import { fetchAPI, BASE_URL } from "../../../utils/api";
 
-const API_HOST = "http://127.0.0.1:8000/api/v1"; // 🔴 standardized — file previously
+// const API_HOST = "http://127.0.0.1:8000/api/v1"; // 🔴 standardized — file previously
 // mixed "http://localhost:8000" and "http://127.0.0.1:8000" across different
 // functions in the same component. Browsers treat these as different origins
 // for CORS purposes, which was a likely contributor to intermittent "Failed to
 // fetch" errors. Everything below now uses one constant.
+
+
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
+
 
 export default function WorkspaceChatPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
@@ -29,8 +33,6 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
-
-  const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
   // 🔴 1-argument Smart TTS Function
   const handleTTS = (text: string) => {
@@ -77,28 +79,33 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
 
     async function loadWorkspaceData() {
       try {
-        const wsRes = await fetchAPI("/chat/workspaces");
-        if (wsRes?.data && isMounted) {
-          const currentWs = wsRes.data.find((ws: any) => ws.id === workspaceId);
+        const supabase = createClient();
+        const [wsResult, histResult, sessionResult] = await Promise.allSettled([
+          fetchAPI("/chat/workspaces"),
+          fetchAPI(`/chat/history/${workspaceId}`),
+          supabase.auth.getSession(),
+        ]);
+
+        if (!isMounted) return;
+
+        if (wsResult.status === "fulfilled" && wsResult.value?.data) {
+          const currentWs = wsResult.value.data.find((ws: any) => ws.id === workspaceId);
           if (currentWs) setWorkspaceName(currentWs.title || "Academic Workspace");
         }
 
-        const histRes = await fetchAPI(`/chat/history/${workspaceId}`);
-        if (histRes?.data && isMounted) {
-          if (histRes.data.length > 0) {
-            setMessages(histRes.data.map((m: any) => ({ id: m.id, role: m.role, content: m.content })));
-          } else {
-            setMessages([]); // let the JSX empty-state placeholder handle this, not a fake message
-          }
+        if (histResult.status === "fulfilled" && histResult.value?.data) {
+          const data = histResult.value.data;
+          setMessages(data.length > 0 ? data.map((m: any) => ({ id: m.id, role: m.role, content: m.content })) : []);
         }
 
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token && isMounted) {
-          const docRes = await fetch(`${API_HOST}/documents/list/${workspaceId}`, {
-            headers: { "Authorization": `Bearer ${session.access_token}` }
-          });
-          if (docRes.ok) setDocuments(await docRes.json());
+        if (sessionResult.status === "fulfilled") {
+          const session = sessionResult.value.data.session;
+          if (session?.access_token) {
+            const docRes = await fetch(`${BASE_URL}/documents/list/${workspaceId}`, {
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (docRes.ok && isMounted) setDocuments(await docRes.json());
+          }
         }
       } catch (err) {
         console.error("Failed to load workspace data:", err);
@@ -119,7 +126,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
-      const docRes = await fetch(`${API_HOST}/documents/list/${workspaceId}`, {
+      const docRes = await fetch(`${BASE_URL}/documents/list/${workspaceId}`, {
         headers: { "Authorization": `Bearer ${session.access_token}` }
       });
       if (docRes.ok) setDocuments(await docRes.json());
@@ -148,7 +155,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "" }]);
 
     try {
-      const res = await fetch(`${API_HOST}/chat/stream`, {
+      const res = await fetch(`${BASE_URL}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -211,7 +218,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     formData.append("workspace_id", workspaceId);
 
     try {
-      const res = await fetch(`${API_HOST}/documents/upload`, {
+      const res = await fetch(`${BASE_URL}/documents/upload`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${session.access_token}` },
         body: formData
@@ -234,11 +241,6 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
-
   // Reset textarea height after message send
   useEffect(() => {
     if (input === "" && textareaRef.current) {
@@ -258,7 +260,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) {
       try {
-        const res = await fetch(`${API_HOST}/documents/delete/${workspaceId}/${docId}`, {
+        const res = await fetch(`${BASE_URL}/documents/delete/${workspaceId}/${docId}`, {
           method: "DELETE",
           headers: { "Authorization": `Bearer ${session.access_token}` }
         });
@@ -284,20 +286,20 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     if (!session?.access_token) { setIsTyping(false); return; }
 
     try {
-      let endpoint = `${API_HOST}/academic/generate`;
+      let endpoint = `${BASE_URL}/academic/generate`;
       let bodyData: any = { workspace_id: workspaceId, task_type: actionType.toLowerCase(), topic };
 
       if (actionType === "Concept Map") {
-        endpoint = `${API_HOST}/knowledge/generate-graph`;
+        endpoint = `${BASE_URL}/knowledge/generate-graph`;
         bodyData = { workspace_id: workspaceId, topic };
       } else if (actionType === "Mock Exam") {
-        endpoint = `${API_HOST}/academic/mock-exam`;
+        endpoint = `${BASE_URL}/academic/mock-exam`;
         bodyData = { workspace_id: workspaceId, topic, difficulty: "University Level" };
       } else if (actionType === "Smart Routine") {
-        endpoint = `${API_HOST}/study/routine`;
-        bodyData = { workspace_id: workspaceId, study_hours: 4, focus_areas: [topic] };
+        endpoint = `${BASE_URL}/study/routine`;
+        bodyData = { weak_topics: [topic], strong_topics: [], target_cgpa: 3.8 };
       } else if (actionType === "Formal Notice") {
-        endpoint = `${API_HOST}/academic/notice`;
+        endpoint = `${BASE_URL}/academic/notice`;
         bodyData = { raw_text: topic };
       }
 
@@ -517,7 +519,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
                           <button 
                             onClick={() => setFeedbackModal({ 
                               isOpen: true, 
-                              msgId: String(i), /* 🔴 FIX: Number কে String-এ কনভার্ট করা হয়েছে */
+                              msgId: String(i), /* 🔴 Number কে String-এ কনভার্ট করা হয়েছে */
                               query: previousUserMessage?.content || "Unknown", 
                               response: msg.content 
                             })} 
@@ -528,7 +530,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
                           </button>
                           
                           <button 
-                            onClick={handleShare} /* 🔴 FIX: আর্গুমেন্ট (msg.content) রিমুভ করা হয়েছে */
+                            onClick={handleShare} /* 🔴 আর্গুমেন্ট (msg.content) রিমুভ করা হয়েছে */
                             className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white/[0.06] hover:text-gray-200" 
                             title="Share"
                           >
@@ -560,18 +562,30 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
       </div>
 
 
-      <div className="shrink-0 w-full bg-[#212121] pt-2 pb-6 px-4 z-20">
+      <div className="shrink-0 w-full bg-[#212121] pt-2 pb-4 sm:pb-6 px-2 sm:px-4 z-20">
         <div className="max-w-3xl mx-auto w-full">
-          <form onSubmit={handleSendMessage} className="flex items-end bg-[#2f2f2f] rounded-3xl border border-white/10 shadow-lg focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all p-1.5">
-
+          <form
+            onSubmit={handleSendMessage}
+            className="flex items-end bg-[#2f2f2f] rounded-3xl border border-white/10 shadow-lg focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all p-1 sm:p-1.5"
+          >
             <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
 
-            <div className="flex items-center gap-1 mb-1 ml-1 shrink-0">
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-white/5">
-                <Paperclip className="w-5 h-5" />
+            <div className="flex items-center gap-0.5 sm:gap-1 mb-1 ml-0.5 sm:ml-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-white/5"
+              >
+                <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
-              <button type="button" onClick={toggleListening} className={`p-2 transition-colors rounded-full hover:bg-white/5 ${isListening ? 'text-red-400 animate-pulse bg-red-500/10' : 'text-gray-400 hover:text-white'}`}>
-                {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              <button
+                type="button"
+                onClick={toggleListening}
+                className={`p-1.5 sm:p-2 transition-colors rounded-full hover:bg-white/5 ${
+                  isListening ? "text-red-400 animate-pulse bg-red-500/10" : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {isListening ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
               </button>
             </div>
 
@@ -588,23 +602,28 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               }}
               placeholder={isTyping ? "Generating response..." : "Message GSTU Assistant..."}
               rows={1}
-              className="min-h-[44px] max-h-[200px] flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2.5 text-[15.5px] leading-6 text-gray-100 placeholder:text-gray-500 focus:outline-none custom-scrollbar disabled:opacity-50"
+              // 16px min font-size on mobile stops iOS Safari auto-zooming on focus
+              className="min-h-[44px] max-h-[200px] flex-1 min-w-0 resize-none overflow-y-auto bg-transparent px-1.5 sm:px-2 py-2.5 text-base sm:text-[15.5px] leading-6 text-gray-100 placeholder:text-gray-500 focus:outline-none custom-scrollbar disabled:opacity-50"
               style={{ height: "44px" }}
             />
 
-            <div className="flex items-center gap-2 mb-1 mr-1 shrink-0 relative">
+            <div className="flex items-center gap-1 sm:gap-2 mb-1 mr-0.5 sm:mr-1 shrink-0 relative">
               <button
                 type="button"
                 onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-[12px] font-bold text-gray-200 transition-colors shadow-inner"
+                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-[11px] sm:text-[12px] font-bold text-gray-200 transition-colors shadow-inner"
               >
                 {selectedModel.icon}
-                <span className="max-w-30 truncate">{selectedModel.name}</span>
+                {/* Full name on wider screens, hidden on phones so the button never forces a horizontal squeeze */}
+                <span className="hidden sm:inline max-w-30 truncate">{selectedModel.name}</span>
                 <ChevronDown className="w-3.5 h-3.5 opacity-70" />
               </button>
 
               {isModelMenuOpen && (
-                <div className="absolute right-12 bottom-full mb-3 w-72 bg-[#171717] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-87.5">
+                <div
+                  className="absolute bottom-full mb-3 z-50 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#171717] shadow-2xl
+                            right-0 left-auto w-[min(18rem,calc(100vw-2rem))] max-h-[60vh] sm:max-h-87.5"
+                >
                   <div className="px-4 py-3 border-b border-white/5 bg-[#121212]">
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Select AI Engine</span>
                   </div>
@@ -629,27 +648,41 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
                           if (model.isPremium) {
                             const supabase = createClient();
                             const { data: { session } } = await supabase.auth.getSession();
-                            const role = session?.user?.user_metadata?.role?.toLowerCase() || "guest";
+                            
+                            // Check both app_metadata (secure) and user_metadata
+                            const role = session?.user?.app_metadata?.role?.toLowerCase() || session?.user?.user_metadata?.role?.toLowerCase() || "guest";
                             const tier = session?.user?.user_metadata?.tier || "free";
                             const createdAt = session?.user?.created_at;
 
-                            if (role === "guest" || (role !== "admin" && tier !== "pro_scholar")) {
-                              alert("🔒 Security Alert: Premium AI Model Locked. Guest and Free accounts cannot access this engine.");
+                            // 1. Guests are strictly blocked from Premium
+                            if (role === "guest") {
+                              alert("🔒 Security Alert: Premium AI Models are locked for Guests. Please login.");
                               return;
                             }
 
-                            const trialEnd = new Date(new Date(createdAt || Date.now()).getTime() + 30 * 24 * 60 * 60 * 1000);
-                            const isTrialActive = trialEnd > new Date();
+                            // 2. If not Admin and not Pro Scholar, check the Trial Status
+                            if (role !== "admin" && tier !== "pro_scholar") {
+                              const trialEnd = new Date(new Date(createdAt || Date.now()).getTime() + 30 * 24 * 60 * 60 * 1000);
+                              const isTrialActive = trialEnd > new Date();
 
-                            if (tier !== "pro_scholar" && session?.user?.user_metadata?.role !== "admin" && !isTrialActive) {
-                              alert("🔒 Premium Model Locked. Your 1-Month trial has expired. Upgrade to Pro Scholar in Settings.");
-                              return;
+                              if (!isTrialActive) {
+                                // Block only if trial is expired
+                                alert("🔒 Premium Model Locked. Your 1-Month Pro Trial has expired. Upgrade to Pro Scholar in Settings.");
+                                return;
+                              }
+                              
+                              // IF TRIAL IS ACTIVE, IT WILL PASS THROUGH THIS BLOCK SUCCESSFULLY 🎉
                             }
                           }
+                          
+                          // 3. Success! Set the model
                           setSelectedModel(model);
                           setIsModelMenuOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between px-4 py-3 text-[13px] font-medium transition-colors ${model.isPremium ? "hover:bg-indigo-500/10" : "hover:bg-white/5"} ${selectedModel.id === model.id ? "bg-white/10 text-white" : "text-gray-300"}`}
+
+                        className={`w-full flex items-center justify-between px-4 py-3 text-[13px] font-medium transition-colors ${
+                          model.isPremium ? "hover:bg-indigo-500/10" : "hover:bg-white/5"
+                        } ${selectedModel.id === model.id ? "bg-white/10 text-white" : "text-gray-300"}`}
                       >
                         <div className="flex items-center gap-3">
                           {model.icon}
@@ -665,35 +698,40 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               <button
                 type="submit"
                 disabled={!input.trim() || isTyping}
-                className="p-3 bg-white text-black hover:bg-gray-200 disabled:bg-[#404040] disabled:text-gray-600 rounded-xl transition-all shadow-md"
+                className="p-2.5 sm:p-3 bg-white text-black hover:bg-gray-200 disabled:bg-[#404040] disabled:text-gray-600 rounded-xl transition-all shadow-md"
               >
                 {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
               </button>
 
               {feedbackModal.isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-                  <div className="bg-[#171717] border border-white/10 p-6 rounded-2xl max-w-md w-full shadow-2xl">
+                  <div className="bg-[#171717] border border-white/10 p-5 sm:p-6 rounded-2xl max-w-md w-full shadow-2xl">
                     <h3 className="text-lg font-bold text-white mb-2">🧠 Help GSTU AI Learn</h3>
                     <p className="text-xs text-gray-400 mb-4">Please explain the reason you dislike this response.</p>
-                    
-                    <textarea 
-                      value={feedbackReason} 
-                      onChange={e => setFeedbackReason(e.target.value)}
+
+                    <textarea
+                      value={feedbackReason}
+                      onChange={(e) => setFeedbackReason(e.target.value)}
                       className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3 text-sm text-gray-300 focus:border-indigo-500 outline-none min-h-[100px] mb-4"
                       placeholder="e.g., The geopolitical facts were outdated..."
                     />
-                    
+
                     <div className="flex justify-end gap-3">
-                      <button onClick={() => setFeedbackModal({isOpen: false, msgId: "", query: "", response: ""})} className="text-xs font-bold text-gray-400 hover:text-white px-4">Cancel</button>
-                      <button 
+                      <button
+                        onClick={() => setFeedbackModal({ isOpen: false, msgId: "", query: "", response: "" })}
+                        className="text-xs font-bold text-gray-400 hover:text-white px-4"
+                      >
+                        Cancel
+                      </button>
+                      <button
                         onClick={async () => {
                           try {
                             await fetchAPI("/logger/feedback", {
                               method: "POST",
-                              body: JSON.stringify({ query: feedbackModal.query, response: feedbackModal.response, reason: feedbackReason })
+                              body: JSON.stringify({ query: feedbackModal.query, response: feedbackModal.response, reason: feedbackReason }),
                             });
                             alert("✅ Feedback securely logged! The GSTU AI routing engine will adjust future responses.");
-                            setFeedbackModal({isOpen: false, msgId: "", query: "", response: ""});
+                            setFeedbackModal({ isOpen: false, msgId: "", query: "", response: "" });
                           } catch (err: any) {
                             alert(err.message || "Failed to submit feedback.");
                           }
@@ -709,9 +747,9 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
             </div>
           </form>
         </div>
-        <p className="mt-3 text-center text-[12px] text-gray-500 font-medium tracking-wide">
-            GSTU Assistant can make mistakes. Verify important academic information.
-          </p>
+        <p className="mt-3 text-center text-[11px] sm:text-[12px] text-gray-500 font-medium tracking-wide px-2">
+          GSTU Assistant can make mistakes. Verify important academic information.
+        </p>
       </div>
     </div>
   );

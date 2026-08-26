@@ -14,6 +14,7 @@ gemini_key = os.getenv("GEMINI_API_KEY")
 router = APIRouter()
 
 class GraphRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     workspace_id: str
     topic: str
 

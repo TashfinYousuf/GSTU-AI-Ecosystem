@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Building2, Bell, BookOpen, Calendar, GraduationCap, Image as ImageIcon, FileText, Download, Search, Loader2 } from "lucide-react";
 import { fetchAPI } from "../../utils/api";
+import { createClient } from "../../utils/supabase/client";
 
 export default function DepartmentHubPage() {
   const [activeTab, setActiveTab] = useState("notices"); 
@@ -22,28 +23,36 @@ export default function DepartmentHubPage() {
     </div>
   );
 
-  // 🔴 Data Fetching Hook
   useEffect(() => {
-    async function fetchDepartmentData() {
-      setIsLoading(true);
+    const fetchDepartmentData = async () => {
       try {
-        if (activeTab === "notices") {
-          const res = await fetchAPI("/department/notices");
-          // Ensure it's setting the array correctly
-          setNotices(res?.data || []);
-        } else if (activeTab === "syllabus") {
-          const res = await fetchAPI("/department/syllabus");
-          setSyllabus(res?.data || []);
-        }
+        const supabase = createClient();
+        
+        // Fetch Approved Notices
+        const { data: noticesData } = await supabase
+          .from("department_notices")
+          .select("*")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false });
+        
+        // Fetch Only Active Syllabus from Knowledge Base
+        const { data: syllabusData } = await supabase
+          .from("knowledge_base_documents")
+          .select("*")
+          .eq("doc_type", "Syllabus")
+          .eq("status", "active");
+
+        if (noticesData) setNotices(noticesData);
+        if (syllabusData) setSyllabus(syllabusData);
       } catch (error) {
         console.error("Error fetching department data:", error);
       } finally {
         setIsLoading(false);
       }
-    }
-    
+    };
+
     fetchDepartmentData();
-  }, [activeTab]);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-[#121212] overflow-y-auto custom-scrollbar p-8 md:p-12">
@@ -121,21 +130,17 @@ export default function DepartmentHubPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {syllabus.map((course, idx) => (
-                <div key={idx} className="bg-[#1e1e1e] border border-white/5 hover:border-emerald-500/30 p-6 rounded-2xl transition-all group">
-                    <div className="flex justify-between items-start mb-4">
-                    <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-lg">{course.code}</span>
-                    <span className="text-gray-500 text-xs font-medium">{course.credits} Credits</span>
-                    </div>
-                    <h3 className="text-white font-bold text-lg mb-6 leading-snug">{course.title}</h3>
-                    <div className="flex gap-2">
-                    <button className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
-                        <BookOpen className="w-4 h-4"/> View
-                    </button>
-                    <button className="bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-400 text-gray-400 p-2.5 rounded-xl transition-colors">
-                        <Download className="w-4 h-4"/>
-                    </button>
-                    </div>
-                </div>
+                  <div key={idx} className="bg-[#1e1e1e] border border-white/5 p-6 rounded-2xl">
+                      <div className="flex justify-between items-start mb-4">
+                        <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-lg">{course.course_code}</span>
+                      </div>
+                      <h3 className="text-white font-bold text-lg mb-6 leading-snug">{course.filename}</h3>
+                      <div className="flex gap-2">
+                        <a href={course.public_url} target="_blank" className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm py-2.5 rounded-xl flex items-center justify-center gap-2">
+                            <BookOpen className="w-4 h-4"/> View PDF
+                        </a>
+                      </div>
+                  </div>
                 ))}
               </div>
             )}

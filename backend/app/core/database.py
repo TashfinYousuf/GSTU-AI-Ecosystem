@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+supabase = os.getenv("SUPABASE_DB_URL")
+
 # Fetch the direct PostgreSQL connection string
 SQLALCHEMY_DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 

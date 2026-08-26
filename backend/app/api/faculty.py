@@ -47,6 +47,7 @@ async def get_support_tickets(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 class AssessmentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     topic: str
 
 @router.post("/assessment")

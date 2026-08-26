@@ -15,6 +15,7 @@ gemini_key = os.getenv("GEMINI_API_KEY")
 router = APIRouter(tags=["Agentic Mentor"])
 
 class MentorChatRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     message: str
     workspace_id: str
     # 🔴 Cognitive Memory: ইউজারের কারেন্ট স্ট্যাটাস (ফ্রন্টএন্ড থেকে আসবে)
