@@ -215,8 +215,8 @@ Return EXACTLY this JSON shape:
         data = call_gemini_json(prompt)
         return {"status": "success", "data": data}
     except Exception as e:
-        print(f"generate_mock_exam error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate assessment.")
+        print(f"Assessment Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate assessment: {e}")
     
 
 # ==================================================================

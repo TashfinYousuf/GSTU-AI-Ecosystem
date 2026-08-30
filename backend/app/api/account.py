@@ -40,14 +40,15 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    meta = current_user.get("user_metadata", {}) or {}
+    meta = current_user.get("app_metadata", {}) or {}
+    user_meta = current_user.get("user_metadata", {}) or {}
     return {
         "status": "success",
         "data": {
             "id": user_id,
             "email": current_user.get("email"),
-            "full_name": meta.get("full_name", ""),
-            "role": meta.get("role", "student"),
+            "full_name": user_meta.get("full_name", ""),   # full_name still lives in user_metadata — that one's fine, it's not security-sensitive
+            "role": meta.get("role", "student"),           # role now correctly read from app_metadata
             "tier": meta.get("tier", "free"),
             "can_change_role": current_user.get("email") in ROLE_CHANGE_ALLOWLIST,
         }
@@ -99,13 +100,17 @@ async def update_role(payload: RoleUpdate, current_user: dict = Depends(get_curr
     try:
         # Preserve existing metadata on the target user rather than wiping it
         target_user = supabase.auth.admin.get_user_by_id(target_id)
-        existing_meta = getattr(target_user, "user_metadata", None) or {}
+        existing_meta = getattr(target_user, "app_metadata", None) or {}
         if isinstance(target_user, dict):
-            existing_meta = target_user.get("user_metadata", {}) or {}
+            existing_meta = target_user.get("app_metadata", {}) or {}
 
         supabase.auth.admin.update_user_by_id(target_id, {
             "app_metadata": {**existing_meta, "role": payload.role}
         })
+
+        # Keep user_profiles in sync — get_authoritative_role() checks this table first
+        supabase.table("user_profiles").update({"role": payload.role}).eq("id", target_id).execute()
+
         return {"status": "success", "message": f"Role updated to {payload.role}."}
     except Exception as e:
         print(f"update_role error: {e}")

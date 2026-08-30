@@ -126,7 +126,7 @@ def render_auth_interface():
         header {{ visibility: hidden !important; }}
         footer {{ visibility: hidden !important; }}
         .block-container {{
-            padding-top: 3vh !important;
+            padding-top: 3dvh !important;
             padding-bottom: 0px !important;
             max-width: 100% !important;
         }}
@@ -143,7 +143,7 @@ def render_auth_interface():
             border-radius: 20px;
             padding: 25px 35px 30px 35px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-            margin-top: 1vh;
+            margin-top: 1dvh;
         }}
 
         /* Premium Social Buttons - Compact */

@@ -8,12 +8,15 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from typing import Optional
+from supabase import create_client, Client
 
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 security = HTTPBearer()
 ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -69,16 +72,13 @@ async def require_active_account(current_user: dict = Depends(get_current_user))
             ...
     """
     meta = current_user.get("app_metadata", {}) or {}
-    role = current_user.get("app_metadata", {}).get("role")
     status = meta.get("account_status", "active")
- 
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin privileges required")
  
     if status == "pending":
         raise HTTPException(status_code=403, detail="Your faculty account is pending admin approval.")
     if status in {"blocked", "rejected"}:
         raise HTTPException(status_code=403, detail="This account has been suspended.")
+    
     # "pending_verification" (students) is intentionally allowed through by
     # default — decide per-route whether unverified students should be
     # blocked entirely or just restricted from sensitive actions (e.g. block
@@ -136,3 +136,40 @@ def get_optional_current_user(credentials: Optional[HTTPAuthorizationCredentials
     except Exception:
         # Silently catch token expiration or invalid tokens -> Treat as Guest
         return None
+    
+    
+async def get_authoritative_role(current_user: dict = Depends(get_current_user)) -> str:
+    user_id = current_user.get("id") or current_user.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication identity."
+        )
+
+    # 1️⃣ DB = primary source of truth
+    try:
+        result = supabase.table("user_profiles").select("role").eq("id", user_id).maybe_single().execute()
+        print(f"[RBAC DEBUG] user_profiles row for {user_id}: {result.data}")
+        if result.data and result.data.get("role"):
+            return str(result.data["role"]).strip().lower()
+    except Exception as e:
+        print(f"[RBAC] Profile lookup failed: {repr(e)}")
+
+    # 2️⃣ JWT metadata fallback
+    app_metadata = current_user.get("app_metadata") or {}
+    user_metadata = current_user.get("user_metadata") or {}
+
+    role = app_metadata.get("role") or user_metadata.get("role")
+    return str(role).strip().lower() if role else ""
+
+
+async def require_faculty_or_admin(current_user: dict = Depends(get_current_user)):
+    role = await get_authoritative_role(current_user)
+
+    if role not in {"faculty", "admin"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Faculty clearance required."
+        )
+    return current_user

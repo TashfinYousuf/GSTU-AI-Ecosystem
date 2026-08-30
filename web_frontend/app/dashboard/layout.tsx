@@ -221,7 +221,7 @@ useEffect(() => {
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     try {
-      const res = await fetchAPI("/auth/profile", {
+      const res = await fetchAPI("/account/profile", {
         method: "PATCH",
         body: JSON.stringify({
           full_name: profileDraft.full_name !== userData.name ? profileDraft.full_name : undefined,
@@ -243,7 +243,7 @@ useEffect(() => {
   const handleRoleChange = async (newRole: string) => {
     setIsChangingRole(true);
     try {
-      const res = await fetchAPI("/auth/role", { method: "PATCH", body: JSON.stringify({ role: newRole }) });
+      const res = await fetchAPI("/account/role", { method: "PATCH", body: JSON.stringify({ role: newRole }) });
       if (res?.status === "success") {
         setUserData(prev => ({ ...prev, role: newRole }));
       } else {
@@ -251,7 +251,6 @@ useEffect(() => {
       }
       if (res?.status === "success") {
       await supabase.auth.refreshSession();
-      alert("Role updated successfully! Reloading OS...");
       // 🔴 Force hard reload to reset all frontend states & UI
       window.location.reload(); 
       }
@@ -269,7 +268,7 @@ useEffect(() => {
 
     setIsDeletingAccount(true);
     try {
-      await fetchAPI("/auth/account", { method: "DELETE" });
+      await fetchAPI("/account/account", { method: "DELETE" });
       await supabase.auth.signOut();
       router.push("/auth/login");
     } catch (err) {
@@ -423,7 +422,7 @@ useEffect(() => {
     <div key={chat.id} className="relative workspace-menu-trigger group">
       <Link
         href={`/dashboard/workspaces/${chat.id}`}
-        className={`flex items-center gap-3 pl-4 pr-9 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname === `/dashboard/workspaces/${chat.id}` ? 'bg-indigo-500/10 text-indigo-400' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'}`}
+        className={`flex items-center gap-3 pl-4 pr-9 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname === `/dashboard/workspaces/${chat.id}` ? 'bg-indigo-500/10 text-emerald-400' : 'text-white-400 hover:text-gray-200 hover:bg-white/5'}`}
       >
         {chat.is_starred ? <Star className="w-4 h-4 shrink-0 fill-amber-400 text-amber-400" /> : <MessageSquare className="w-4 h-4 shrink-0" />}
         <span className="truncate">{chat.title || "Untitled Chat"}</span>
@@ -493,7 +492,7 @@ useEffect(() => {
         {isExpanded && (
           <div className="ml-2 border-l border-white/5 pl-1 space-y-1 mt-0.5">
             {projectChats.length > 0 ? projectChats.map(chat => renderChatItem(chat)) : (
-              <p className="px-5 py-1.5 text-[11px] text-gray-600 italic">No chats yet.</p>
+              <p className="px-5 py-1.5 text-[11px] text-white italic">No chats yet.</p>
             )}
             <button onClick={() => handleNewChatInProject(project.id)} className="w-full flex items-center gap-2 px-4 py-1.5 text-[12px] text-gray-500 hover:text-gray-300 transition-colors">
               <Plus className="w-3 h-3" /> New chat
@@ -878,34 +877,34 @@ useEffect(() => {
                 they silently no-op, replaced with real gray shades below. */}
 
             {/* Main Dashboard Link */}
-            <button onClick={() => router.push('/dashboard')} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors w-full text-left ${pathname === "/dashboard" ? "bg-[#2f2f2f] text-gray-100" : "text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}>
+            <button onClick={() => router.push('/dashboard')} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors w-full text-left ${pathname === "/dashboard" ? "bg-[#2f2f2f] text-white-100" : "text-white-400 hover:bg-[#2f2f2f] hover:text-gray-200"}`}>
               <LayoutDashboard className="w-4 h-4" />
               <span className="font-medium text-[13px]">Dashboard</span>
             </button>
 
             <div>
-              <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2 ml-3">Apps & Tools</h3>
+              <h3 className="text-[10px] font-bold text-white-500 uppercase tracking-wider mb-2 ml-3">Apps & Tools</h3>
               <div className="space-y-1">
                 {/* 🔴 Replaced <Link> with <button> to enforce Security Modal */}
-                <button onClick={() => handleNavigation('/dashboard/scholar-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("scholar-hub") ? 'bg-white/10 text-white' : "text-gray-400 hover:text-gray-200 hover:bg-white/5"}`}>
+                <button onClick={() => handleNavigation('/dashboard/scholar-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("scholar-hub") ? 'bg-white/10 text-white' : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Brain className="w-4 h-4 text-blue-400" /> Scholar Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
                 </button>
                 
-                <button onClick={() => handleNavigation('/dashboard/study-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium transition-colors rounded-lg ${pathname.includes("study-hub") ? "bg-white/10 text-white" : "text-gray-400 hover:text-gray-200 hover:bg-white/5"}`}>
+                <button onClick={() => handleNavigation('/dashboard/study-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium transition-colors rounded-lg ${pathname.includes("study-hub") ? "bg-white/10 text-white" : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Gamepad2 className="w-4 h-4 text-rose-400" /> Interactive Study Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
                 </button>
                 
-                <button onClick={() => handleNavigation('/dashboard/department', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("department") ? "bg-white/10 text-white" : "text-gray-400 hover:text-gray-200 hover:bg-white/5"}`}>
+                <button onClick={() => handleNavigation('/dashboard/department', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("department") ? "bg-white/10 text-white" : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Building2 className="w-4 h-4 text-blue-400" /> Department Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
                 </button>
                 
-                <button onClick={() => handleNavigation('/dashboard/copilot', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("copilot") ? 'bg-white/10 text-white' : "text-gray-400 hover:text-gray-200 hover:bg-white/5"}`}>
+                <button onClick={() => handleNavigation('/dashboard/copilot', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("copilot") ? 'bg-white/10 text-white' : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Sparkles className="w-4 h-4 text-amber-400" /> Academic Copilot {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
                 </button>
                 
                 {/* 🔴 ACADEMIC CLEARANCE: Only visible to Admins and Faculty */}
                 {(userData.role === 'admin' || userData.role === 'faculty') && (
-                  <button onClick={() => handleNavigation('/dashboard/admin')} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("admin") ? 'bg-white/10 text-white' : "text-gray-400 hover:text-gray-200 hover:bg-white/5"}`}>
+                  <button onClick={() => handleNavigation('/dashboard/admin')} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("admin") ? 'bg-white/10 text-white' : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                     <ShieldCheck className="w-4 h-4 text-emerald-400" /> Faculty Node
                   </button>
                 )}
@@ -913,7 +912,7 @@ useEffect(() => {
                 {/* 🔴 SMART INTEGRATION: Uses existing Chat architecture & features! */}
                 <button 
                   onClick={handleNewChat} 
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5 group`}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors text-white hover:text-gray-200 hover:bg-white/5 group`}
                 >
                   <MessageSquare className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" /> 
                   AI Core Assistant
@@ -924,7 +923,7 @@ useEffect(() => {
             {/* Your Workspaces = Project Folders */}
             <div className="mb-6">
               <div className="flex items-center justify-between px-4 mb-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Your Workspaces</p>
+                <p className="text-[10px] font-bold text-white-500 uppercase tracking-wider">Your Workspaces</p>
                 <button onClick={handleNewProject} title="New Project" className="text-gray-500 hover:text-white hover:bg-white/10 p-1 rounded-md transition-colors">
                   <FolderPlus className="w-4 h-4" />
                 </button>
@@ -937,7 +936,7 @@ useEffect(() => {
                 ) : projects.length > 0 ? (
                   projects.map(renderProjectItem)
                 ) : (
-                  <p className="px-5 py-2 text-xs text-gray-600 italic">No projects yet — click the folder icon to start one.</p>
+                  <p className="px-7 py-2 text-xs text-gray-400 italic">No projects yet — click the folder icon to start one.</p>
                 )}
               </div>
             </div>
@@ -945,14 +944,14 @@ useEffect(() => {
             {/* Recents = ungrouped chats */}
             <div className="mb-8">
               <div className="flex items-center justify-between px-4 mb-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Recents</p>
+                <p className="text-[10px] font-bold text-white-500 uppercase tracking-wider">Recents</p>
                 <button onClick={() => handleNewChatInProject(null)} title="New Chat" className="text-gray-500 hover:text-white hover:bg-white/10 p-1 rounded-md transition-colors">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
               <div className="space-y-1">
                 {!isWorkspacesLoading && recentChats.length > 0 ? recentChats.map(chat => renderChatItem(chat)) : !isWorkspacesLoading ? (
-                  <p className="px-5 py-2 text-xs text-gray-600 italic">No recent chats.</p>
+                  <p className="px-5 py-2 text-xs text-white-600 italic">No recent chats.</p>
                 ) : null}
               </div>
             </div>
@@ -1031,7 +1030,7 @@ useEffect(() => {
         {isSettingsOpen && (
           <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
             {/* 🔴 1. MODAL WRAPPER: flex-col on mobile, flex-row on desktop */}
-            <div className="bg-[#171717] w-full max-w-5xl h-[90vh] md:h-[85vh] rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10">
+            <div className="bg-[#171717] w-full max-w-5xl h-[90dvh] md:h-[85dvh] rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10">
 
               {/* 🔴 2. TABS SIDEBAR: Horizontal scroll on mobile, Vertical on desktop */}
               <div className="w-full md:w-64 bg-[#121212] border-b md:border-b-0 md:border-r border-white/5 flex flex-row md:flex-col shrink-0 overflow-x-auto custom-scrollbar">
@@ -1079,9 +1078,9 @@ useEffect(() => {
 
                       <div className="bg-gradient-to-r from-indigo-500/20 via-purple-500/10 to-transparent border border-indigo-500/30 rounded-3xl p-8 mb-10 flex items-center justify-between relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl"></div>
-                        <div className="relative z-10">
+                        <div className="relative z-8">
                           <h4 className="text-xl font-bold text-white mb-1">Your Lifetime Impact</h4>
-                          <p className="text-sm text-indigo-200/70">Track your academic progress through GSTU OS.</p>
+                          <p className="text-sm text-indigo-200/70">Track academic progress through GSTU AI.</p>
                         </div>
                         <div className="flex gap-8 relative z-10">
                           <div className="text-center">
@@ -1304,7 +1303,7 @@ useEffect(() => {
                   {/* Help & Privacy Modal — ChatGPT/Claude-style overlay */}
                   {isHelpPrivacyOpen && (
                     <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-                      <div className="bg-[#171717] w-full max-w-2xl max-h-[80vh] rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+                      <div className="bg-[#171717] w-full max-w-2xl max-h-[80dvh] rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
                         <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 shrink-0">
                           <h3 className="text-lg font-bold text-white">Help Center & Privacy Policy</h3>
                           <button onClick={() => setIsHelpPrivacyOpen(false)} className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">

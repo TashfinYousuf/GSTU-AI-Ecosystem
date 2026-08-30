@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Brain, Target, Search, BookOpen, Presentation, CheckCircle, XCircle, AlertTriangle, Lightbulb } from "lucide-react";
 import { fetchAPI } from "../../utils/api";
+import useSWR from "swr";
+
 
 export default function ScholarHubPage() {
   const [activeTab, setActiveTab] = useState<"research" | "review">("research");
@@ -170,7 +172,7 @@ export default function ScholarHubPage() {
               {/* 🎯 GAP HUNTER OUTPUT */}
               {result.the_gap && (
                 <div className="space-y-6">
-                  <div className="p-8 bg-gradient-to-br from-indigo-500/10 to-[#1e1e1e] border border-indigo-500/30 rounded-3xl shadow-xl">
+                  <div className="p-8 bg-linear-to-br from-indigo-500/10 to-[#1e1e1e] border border-indigo-500/30 rounded-3xl shadow-xl">
                     <h4 className="text-xl font-bold text-indigo-400 mb-4 flex items-center gap-3"><Target className="w-6 h-6"/> The Missing Gap</h4>
                     <p className="text-gray-200 leading-relaxed text-[16px]">{result.the_gap}</p>
                   </div>

@@ -52,10 +52,16 @@ export default function AcademicCopilotPage() {
         alert("Please enter a topic first!");
         return;
       }
-    } else {
-      // For Grading, Formalize, Rubric, etc.
+    } else if (activeTab !== "notice") {
+      // Grading, Formalize, Rubric — content box required
       if (!studentContent.trim()) {
         alert("Please provide the text/content first!");
+        return;
+      }
+    } else {
+      // Notice only needs the topic/instruction field, not the content box
+      if (!inputTopic.trim() && !studentContent.trim()) {
+        alert("Please describe what the notice is about!");
         return;
       }
     }
@@ -71,7 +77,6 @@ export default function AcademicCopilotPage() {
         const res = await fetchAPI("/study/routine", {
           method: "POST",
           body: JSON.stringify({ 
-            focus_area: inputTopic, 
             weak_topics: [inputTopic], 
             strong_topics: [], 
             target_cgpa: 3.8 
@@ -83,9 +88,10 @@ export default function AcademicCopilotPage() {
           // Note: Backend securely saves the routine to Supabase now. 
           // Frontend redundant insert removed to prevent duplication.
         }
-      } 
+      }
+
       else if (activeTab === "exam") {
-        // 🔴 Fix: Matched with Assessment Endpoint Payload
+        // 🔴 Matched with Assessment Endpoint Payload
         const res = await fetchAPI("/study/assessment", {
           method: "POST",
           body: JSON.stringify({ 
@@ -96,21 +102,19 @@ export default function AcademicCopilotPage() {
         });
         if (res.status === "success") setAssessmentData(res.data);
       } 
-      else {
-        // Generic fallback for Grading, Rubric & Notice (Uses standard text generation)
-        // 🔴 STRICT PAYLOAD MATCH for /academic/generate
-        const payload = { 
-          task_type: activeTab, 
-          content: studentContent,
-          topic: inputTopic || "General Academic Work" 
-        }; 
-        
-        const res = await fetchAPI("/academic/generate", { 
-          method: "POST", 
-          body: JSON.stringify(payload) 
-        });
-        setResult(res.result || res.data || "Task completed successfully.");
+      
+      else if (activeTab === "notice") {
+          const res = await fetchAPI("/academic/notice", {
+            method: "POST",
+            body: JSON.stringify({ raw_text: inputTopic || studentContent })
+          });
+          setResult(res.result || res.data || "Notice generated successfully.");
+        } else {
+          const payload = { task_type: activeTab, content: studentContent, topic: inputTopic || "General Academic Work" };
+          const res = await fetchAPI("/academic/generate", { method: "POST", body: JSON.stringify(payload) });
+          setResult(res.result || res.data || "Task completed successfully.");
       }
+    
     } catch (error: any) {
       alert(`Execution Failed: ${error.message}`);
     } finally {
@@ -138,7 +142,7 @@ export default function AcademicCopilotPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         // Fetch role from metadata and make it lowercase for easy comparison
-        const role = session.user.user_metadata?.role?.toLowerCase() || "student";
+        const role = session.user.app_metadata?.role?.toLowerCase() || "student";
         setUserRole(role);
       }
       setIsCheckingAccess(false);
@@ -146,7 +150,7 @@ export default function AcademicCopilotPage() {
     checkAccess();
   }, []);
 
-  
+
   return (
     <div className="min-h-dvh bg-[#121212] text-gray-200 p-8 md:p-12 font-sans transition-all duration-300">
       

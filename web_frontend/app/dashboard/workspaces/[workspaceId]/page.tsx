@@ -406,7 +406,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
 
           {/* Empty State */}
           {messages.length === 0 && !isTyping && (
-            <div className="flex min-h-[55vh] flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex min-h-[55dvh] flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-4">
               <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] shadow-xl">
                 <Brain className="h-8 w-8 text-indigo-500" />
               </div>
@@ -622,7 +622,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
               {isModelMenuOpen && (
                 <div
                   className="absolute bottom-full mb-3 z-50 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#171717] shadow-2xl
-                            right-0 left-auto w-[min(18rem,calc(100vw-2rem))] max-h-[60vh] sm:max-h-87.5"
+                            right-0 left-auto w-[min(18rem,calc(100vw-2rem))] max-h-[60dvh] sm:max-h-87.5"
                 >
                   <div className="px-4 py-3 border-b border-white/5 bg-[#121212]">
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Select AI Engine</span>
@@ -650,8 +650,8 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
                             const { data: { session } } = await supabase.auth.getSession();
                             
                             // Check both app_metadata (secure) and user_metadata
-                            const role = session?.user?.app_metadata?.role?.toLowerCase() || session?.user?.user_metadata?.role?.toLowerCase() || "guest";
-                            const tier = session?.user?.user_metadata?.tier || "free";
+                            const role = session?.user?.user_metadata?.role?.toLowerCase() || "guest";
+                            const tier = session?.user?.app_metadata?.tier || "free";
                             const createdAt = session?.user?.created_at;
 
                             // 1. Guests are strictly blocked from Premium

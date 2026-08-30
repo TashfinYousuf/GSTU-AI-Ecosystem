@@ -12,8 +12,8 @@ export default function MainDashboardPage() {
   const router = useRouter();
   const [userRole, setUserRole] = useState("guest"); 
   const [userName, setUserName] = useState("");
-  const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null); 
 
   // 🔴 Toast & Logger States
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -22,11 +22,33 @@ export default function MainDashboardPage() {
   const [logMinutes, setLogMinutes] = useState("");
   const [isLogging, setIsLogging] = useState(false);
 
+  const [statsLoading, setStatsLoading] = useState(true);
+
   // 🔴 Daily Logger Modal States
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [logData, setLogData] = useState({ study_hours: "", sleep_hours: "", mood: "Focused" });
 
-  const [mappingData, setMappingData] = useState<any[]>([]);
+  const { data: stats } = useSWR(
+    userRole === "student" && userId ? `/academic/analytics/${userId}` :
+    (userRole === "faculty" || userRole === "admin") ? "/faculty/overview" : null,
+    fetchAPI
+  );
+
+  const { data: mappingRes } = useSWR(
+    userRole === "student" || userRole === "pro_scholar" ? "/logger/mapping" : null,
+    fetchAPI
+  );
+  
+  const mappingData = mappingRes?.data || [];
+
+  useEffect(() => {
+  const getMyToken = async () => {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    console.log("🔑 MY JWT TOKEN:", data.session?.access_token);
+  };
+  getMyToken();
+}, []);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -40,26 +62,12 @@ export default function MainDashboardPage() {
       }
 
       // 1. Get Real User Data & Role from Supabase
-      const role = session.user.user_metadata?.role?.toLowerCase() || "student";
+      const role = session.user.app_metadata?.role?.toLowerCase() || "student";
       const name = session.user.user_metadata?.full_name?.split(" ")[0] || "Scholar";
       setUserRole(role);
       setUserName(name);
-
-      // 2. Fetch Real Stats
-      try {
-        if (role === "student") {
-          const res = await fetchAPI(`/academic/analytics/${session.user.id}`);
-          setStats(res.data);
-        } else if (role === "faculty" || role === "admin") {
-          const res = await fetchAPI("/admin/analytics");
-          setStats(res.data);
-        }
-      } catch (error) {
-        console.error("API Error: Backend offline or endpoint missing.", error);
-        setStats({}); // Fallback
-      } finally {
-        setIsLoading(false);
-      }
+      setUserId(session.user.id); 
+      setIsLoading(false); 
 
       const todayDate = new Date().toISOString().split('T')[0];
 
@@ -87,13 +95,10 @@ export default function MainDashboardPage() {
         setTimeout(() => setShowDailyModal(true), 3000);
       }
       
-      // 🔴 3. Student Mapping Data Fetch
-      if (role === "student" || role === "pro_scholar") {
-        try {
-          const mapRes = await fetchAPI("/logger/mapping");
-          if (mapRes.data) setMappingData(mapRes.data);
-        } catch (e) { }
-      }
+      const handleDismissDaily = () => {
+        localStorage.setItem("gstu_last_daily_log", new Date().toISOString().split('T')[0]);
+        setShowDailyModal(false);
+      };
     }
 
     loadDashboardData();
@@ -126,6 +131,32 @@ export default function MainDashboardPage() {
       setIsLogging(false);
     }
   };
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchFacultyStats = async () => {
+      setStatsLoading(true);
+      try {
+        // আপনার গ্লোবাল fetchAPI ইউটিলিটি ব্যবহার করুন
+        const res = await fetchAPI("/faculty/overview");
+        if (res?.status === "success" && isMounted) {
+          stats(res.data); // 🔴 Ensure we only set the data object
+        }
+      } catch (error) {
+        console.error("Faculty stats error:", error);
+      } finally {
+        if (isMounted) setStatsLoading(false);
+      }
+    };
+
+    if (userRole === "faculty" || userRole === "admin") {
+      fetchFacultyStats();
+    }
+    
+    return () => { isMounted = false; };
+  }, [userRole]);
+
 
   if (isLoading) {
     return (
@@ -442,28 +473,45 @@ export default function MainDashboardPage() {
         { /* =====================================================================
         🔴 FACULTY PRODUCTIVITY MONITOR
         ===================================================================== */ }
-        {/* 🔴 Faculty Productivity Monitor (Always shows) */}
-        {((userRole as string) === "faculty" || (userRole as string) === "admin") && (
-          <div className="w-full bg-gradient-to-br from-[#1e1e1e] to-[#171717] border border-white/5 rounded-3xl p-8 shadow-2xl mb-10">
-            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-6 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" /> Faculty Productivity Monitor
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-emerald-500 hover:-translate-y-1 transition-transform">
-                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Clock className="w-6 h-6 text-emerald-400"/> {stats?.faculty_hours_saved || 12} <span className="text-sm text-gray-500 font-normal">hrs</span></div>
-                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Grading & Prep Saved</div>
-              </div>
-              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-purple-500 hover:-translate-y-1 transition-transform">
-                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><FileQuestion className="w-6 h-6 text-purple-400"/> {stats?.questions_generated || 45}</div>
-                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Questions Generated</div>
-              </div>
-              <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-blue-500 hover:-translate-y-1 transition-transform">
-                <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2"><Users className="w-6 h-6 text-blue-400"/> {stats?.active_students || 120}</div>
-                <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Active Students Monitored</div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* 🔴 Faculty Productivity Monitor */}
+{((userRole as string) === "faculty" || (userRole as string) === "admin") && (
+  <div className="w-full bg-linear-to-br from-[#1e1e1e] to-[#171717] border border-white/5 rounded-3xl p-8 shadow-2xl mb-10">
+    <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-6 flex items-center gap-2">
+      <TrendingUp className="w-4 h-4 text-emerald-400" /> Faculty Productivity Monitor
+    </h3>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      
+      {/* Hours Saved */}
+      <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-emerald-500 hover:-translate-y-1 transition-transform">
+        <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2">
+          <Clock className="w-6 h-6 text-emerald-400"/>
+          {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-emerald-500" /> : (stats?.faculty_hours_saved ?? 0)}
+          {!statsLoading && <span className="text-sm text-gray-500 font-normal">hrs</span>}
+        </div>
+        <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Grading & Prep Saved</div>
+      </div>
+
+      {/* Questions Generated */}
+      <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-purple-500 hover:-translate-y-1 transition-transform">
+        <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2">
+          <FileQuestion className="w-6 h-6 text-purple-400"/> 
+          {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-purple-500" /> : (stats?.questions_generated ?? 0)}
+        </div>
+        <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Questions Generated</div>
+      </div>
+
+      {/* Active Students */}
+      <div className="bg-black/20 border border-white/5 rounded-2xl p-5 border-b-2 border-b-blue-500 hover:-translate-y-1 transition-transform">
+        <div className="text-3xl font-bold text-white mb-2 flex items-center gap-2">
+          <Users className="w-6 h-6 text-blue-400"/> 
+          {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-blue-500" /> : (stats?.active_students ?? 0)}
+        </div>
+        <div className="text-[12px] font-medium text-gray-400 uppercase tracking-wide">Active Students Monitored</div>
+      </div>
+
+    </div>
+  </div>
+)}
 
         {/* 🔴 RBAC: Guest Banner */}
         {userRole === "guest" && (

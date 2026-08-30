@@ -263,7 +263,7 @@ st.markdown("""
         border-radius: 20px;
         padding: 30px 40px;
         box-shadow: 0 15px 50px rgba(0, 0, 0, 0.8);
-        margin-top: 2vh;
+        margin-top: 2dvh;
         width: 100%;
     }
 
@@ -489,7 +489,7 @@ if "cookies_ready" not in st.session_state:
     st.session_state.cookies_ready = True
     
     st.markdown("""
-    <div style='position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #0f172a; z-index: 999999; display: flex; align-items: center; justify-content: center; flex-direction: column;'>
+    <div style='position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; background-color: #0f172a; z-index: 999999; display: flex; align-items: center; justify-content: center; flex-direction: column;'>
         <h2 style='color: #10a37f; font-family: sans-serif; margin-bottom: 5px;'>🔄 Verifying Secure Session...</h2>
         <p style='color: #94a3b8; font-family: sans-serif; font-size: 14px;'>Synchronizing with GSTU AI database...</p>
     </div>
@@ -602,9 +602,9 @@ if st.session_state.get("show_login_page", False):
         {bg_css}
         header {{ visibility: hidden !important; }}
         footer {{ visibility: hidden !important; }}
-        .block-container {{ padding-top: 3vh !important; padding-bottom: 0px !important; max-width: 100% !important; }}
+        .block-container {{ padding-top: 3dvh !important; padding-bottom: 0px !important; max-width: 100% !important; }}
         div[data-testid="stVerticalBlock"] {{ gap: 0.6rem !important; }}
-        div[data-testid="column"]:nth-child(2) {{ background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px 35px 30px 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); margin-top: 1vh; }}
+        div[data-testid="column"]:nth-child(2) {{ background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px 35px 30px 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); margin-top: 1dvh; }}
         
         .social-btn {{ display: flex; align-items: center; justify-content: center; width: 100%; padding: 10px; margin-bottom: 5px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(30, 30, 30, 0.5); color: #ffffff !important; text-decoration: none !important; font-size: 13px; font-weight: 500; transition: all 0.3s ease; cursor: pointer; }}
         .social-btn:hover {{ background: #000000 !important; border-color: #10a37f; color: #ffffff !important; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(16, 163, 127, 0.3);}}
@@ -1087,7 +1087,7 @@ else:
         <style>
         .stApp {{ background: transparent !important; color: #f1f5f9 !important; }}
         .stApp::before {{
-            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh;
             background: linear-gradient(rgba(10, 15, 30, 0.85), rgba(5, 8, 15, 0.95)), url('data:image/jpeg;base64,{dash_bg_b64}') center/cover no-repeat;
             filter: blur(12px); z-index: -999; transform: scale(1.05);
         }}

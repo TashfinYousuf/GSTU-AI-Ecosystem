@@ -17,7 +17,7 @@ router = APIRouter()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 # MUST use SERVICE_ROLE_KEY to update user metadata and bypass RLS
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 router = APIRouter()
 
@@ -26,7 +26,6 @@ class SyncUserResponse(BaseModel):
     message: str
     is_new_user: bool
     # user: UserResponse
-    
 class RoleUpdateRequest(BaseModel):
     model_config = {"extra": "forbid"}
     role: str

@@ -92,7 +92,7 @@ async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
         PRICE_PER_PRO_USER_BDT = 99
         est_revenue_bdt = pro_users * PRICE_PER_PRO_USER_BDT
 
-        return {
+        response_data = {
             "status": "success",
             "data": {
                 "total_users": total_users,
@@ -108,7 +108,8 @@ async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
         # Save to cache
         _analytics_cache["data"] = response_data
         _analytics_cache["timestamp"] = current_time
-        
+        return response_data
+    
     except Exception as e:
         print(f"get_admin_analytics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

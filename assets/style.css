@@ -794,7 +794,7 @@ div[data-testid="stPopover"] > button:hover {
 
 
 /* ─── 9. SPLASH / LOADING SCREEN ─── */
-.supreme-splash { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #05080f; z-index: 999999999; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: splashFade 0.4s ease-in-out 1.2s forwards; }
+.supreme-splash { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; background-color: #05080f; z-index: 999999999; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: splashFade 0.4s ease-in-out 1.2s forwards; }
 .supreme-splash-text { color: #10a37f; font-family: 'Inter', sans-serif; font-size: 24px; font-weight: 800; animation: pulse 1.5s infinite ease-in-out; letter-spacing: -0.5px; }
 @keyframes pulse { 0% { opacity: 0.6; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.6; transform: scale(0.98); } }
 @keyframes splashFade { to { opacity: 0; visibility: hidden; pointer-events: none; } }
