@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "Mid-Term Examination Schedule Published",
+    "date": "Aug 02, 2026",
+    "type": "Academic",
+    "file_url": null,
+    "created_at": "2026-08-05T18:37:48.936242+00:00"
+  },
+  {
+    "id": 2,
+    "title": "Seminar on South Asian Geopolitics",
+    "date": "Jul 28, 2026",
+    "type": "Event",
+    "file_url": null,
+    "created_at": "2026-08-05T18:37:48.936242+00:00"
+  },
+  {
+    "id": 3,
+    "title": "Registration Deadline for Semester 2.1",
+    "date": "Jul 25, 2026",
+    "type": "Admin",
+    "file_url": null,
+    "created_at": "2026-08-05T18:37:48.936242+00:00"
+  }
+]

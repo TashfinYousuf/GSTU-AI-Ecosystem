@@ -1,0 +1,62 @@
+[
+  {
+    "id": "1cf76514-00bd-4745-9e3f-455fe1d3bcc3",
+    "uploaded_by": "73f4cb86-2054-46c4-a5c9-031121b68008",
+    "course_code": "IR-154",
+    "doc_type": "Syllabus",
+    "filename": "Course Content_ IR154_ History and Politics of Bangladesh.pdf",
+    "storage_path": "knowledge_base/IR-154/bfa47888-2d5d-497e-a4e7-1d72bbbc2761_Course Content_ IR154_ History and Politics of Bangladesh.pdf",
+    "public_url": "https://viepwhawvwszrtqaxwkf.supabase.co/storage/v1/object/public/documents/knowledge_base/IR-154/bfa47888-2d5d-497e-a4e7-1d72bbbc2761_Course%20Content_%20IR154_%20History%20and%20Politics%20of%20Bangladesh.pdf",
+    "status": "archived",
+    "created_at": "2026-08-10T21:04:44.249373+00:00",
+    "file_hash": null,
+    "total_chunks": 0,
+    "processed_chunks": 0,
+    "error_msg": null
+  },
+  {
+    "id": "f7b05025-9e0f-4189-bdf3-ec47cdcc658f",
+    "uploaded_by": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "course_code": "IR-200-v1",
+    "doc_type": "Textbook / PDF",
+    "filename": "Foreign Policy Analysis.pdf",
+    "storage_path": "knowledge_base/IR-200-v1/b9f2171b-21f6-451b-987e-227837bc0724_Foreign Policy Analysis.pdf",
+    "public_url": "https://viepwhawvwszrtqaxwkf.supabase.co/storage/v1/object/public/documents/knowledge_base/IR-200-v1/b9f2171b-21f6-451b-987e-227837bc0724_Foreign Policy Analysis.pdf?",
+    "status": "archived",
+    "created_at": "2026-08-25T09:31:48.253102+00:00",
+    "file_hash": "12508c032e588709d5e73417a27f9e4df9eaf1293d6c8504b29e4968c24a91d5",
+    "total_chunks": 824,
+    "processed_chunks": 0,
+    "error_msg": "Error embedding content: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/embed_content_free_tier_requests, limit: 1000, model: gemini-embedding-1.0\nPlease retry in 27.444312234s. [links {\n  description: \"Learn more about Gemini API quotas\"\n  url: \"https://ai.google.dev/gemini-api/docs/rate-limits\"\n}\n, violations {\n  quota_metric: \"generativelanguage.googleapis.com/embed_content_free_tier_requests\"\n  quota_id: \"EmbedContentRequestsPerDayPerUserPerProjectPerModel-FreeTier\"\n  quota_dimensions {\n    key: \"model\"\n    value: \"gemini-embedding-1.0\"\n  }\n  quota_dimensions {\n    key: \"location\"\n    value: \"global\"\n  }\n  quota_value: 1000\n}\n, retry_delay {\n  seconds: 27\n}\n]"
+  },
+  {
+    "id": "4b09f05a-d070-4af2-8421-84d9525d9758",
+    "uploaded_by": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "course_code": "IR-154 Syllabus 23-24",
+    "doc_type": "Syllabus",
+    "filename": "Course Content_ IR154_ History and Politics of Bangladesh.pdf",
+    "storage_path": "knowledge_base/IR-154 Syllabus 23-24/3c8c5258-4ea7-4cfc-9aa1-58d6fe4c21d2_Course Content_ IR154_ History and Politics of Bangladesh.pdf",
+    "public_url": "https://viepwhawvwszrtqaxwkf.supabase.co/storage/v1/object/public/documents/knowledge_base/IR-154 Syllabus 23-24/3c8c5258-4ea7-4cfc-9aa1-58d6fe4c21d2_Course Content_ IR154_ History and Politics of Bangladesh.pdf?",
+    "status": "active",
+    "created_at": "2026-09-01T13:34:03.243871+00:00",
+    "file_hash": "70a7bcd6b2d059d39e805f06dfa28109158096a309f4d23863b5bd9b68e7dbe8",
+    "total_chunks": 3,
+    "processed_chunks": 3,
+    "error_msg": null
+  },
+  {
+    "id": "82f37905-ed3a-43c4-a497-b17ffc6ea0a9",
+    "uploaded_by": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "course_code": "IR206 Syllabus 23-24",
+    "doc_type": "Syllabus",
+    "filename": "Course contentsIR206_Mahabuba Uddin.pdf",
+    "storage_path": "knowledge_base/IR206 Syllabus 23-24/4e3e49c4-37d1-4e46-80b7-0048b8ffcac1_Course_contentsIR206_Mahabuba_Uddin.pdf",
+    "public_url": "https://viepwhawvwszrtqaxwkf.supabase.co/storage/v1/object/public/documents/knowledge_base/IR206 Syllabus 23-24/4e3e49c4-37d1-4e46-80b7-0048b8ffcac1_Course_contentsIR206_Mahabuba_Uddin.pdf?",
+    "status": "active",
+    "created_at": "2026-10-02T20:44:24.215084+00:00",
+    "file_hash": "0347493b049c0b69fa7f8deb7b7f7159cd23a3a0aec9bba3825e1d43cc224ac1",
+    "total_chunks": 5,
+    "processed_chunks": 5,
+    "error_msg": null
+  }
+]

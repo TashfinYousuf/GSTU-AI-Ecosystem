@@ -1,0 +1,86 @@
+{
+  "timestamp": "20261003_032110",
+  "supabase_url": "https://viepwhawvwszrtqaxwkf.supabase.co",
+  "tables": {
+    "user_profiles": {
+      "rows_backed_up": 1,
+      "file": "user_profiles.json"
+    },
+    "workspaces": {
+      "rows_backed_up": 14,
+      "file": "workspaces.json"
+    },
+    "projects": {
+      "rows_backed_up": 0,
+      "file": "projects.json"
+    },
+    "messages": {
+      "rows_backed_up": 25,
+      "file": "messages.json"
+    },
+    "documents": {
+      "rows_backed_up": 0,
+      "file": "documents.json"
+    },
+    "knowledge_base_documents": {
+      "rows_backed_up": 4,
+      "file": "knowledge_base_documents.json"
+    },
+    "study_logs": {
+      "rows_backed_up": 9,
+      "file": "study_logs.json"
+    },
+    "smart_routines": {
+      "rows_backed_up": 0,
+      "file": "smart_routines.json"
+    },
+    "study_plans": {
+      "rows_backed_up": 0,
+      "file": "study_plans.json"
+    },
+    "support_tickets": {
+      "rows_backed_up": 0,
+      "file": "support_tickets.json"
+    },
+    "notices": {
+      "rows_backed_up": 0,
+      "file": "notices.json"
+    },
+    "department_notices": {
+      "rows_backed_up": 3,
+      "file": "department_notices.json"
+    },
+    "department_syllabus": {
+      "rows_backed_up": 3,
+      "file": "department_syllabus.json"
+    },
+    "syllabus": {
+      "rows_backed_up": 0,
+      "file": "syllabus.json"
+    },
+    "user_gamification": {
+      "rows_backed_up": 2,
+      "file": "user_gamification.json"
+    },
+    "xp_transactions": {
+      "rows_backed_up": 0,
+      "file": "xp_transactions.json"
+    },
+    "academic_analytics": {
+      "rows_backed_up": 0,
+      "file": "academic_analytics.json"
+    },
+    "ai_training_logs": {
+      "rows_backed_up": 5,
+      "file": "ai_training_logs.json"
+    },
+    "audit_logs": {
+      "rows_backed_up": 0,
+      "file": "audit_logs.json"
+    },
+    "study_sessions": {
+      "rows_backed_up": 0,
+      "file": "study_sessions.json"
+    }
+  }
+}

@@ -10,7 +10,10 @@ python-multipart     # For File Uploads & Form Data in FastAPI
 python-dotenv        # For loading .env variables
 
 # --- Database & Authentication ---
-supabase            # Supabase Python Client
+supabase
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+psycopg[binary]>=3.1.18
 
 # --- Main AI / LLM Providers ---
 groq              # Groq API (Llama-3)
@@ -38,3 +41,8 @@ numpy              # Dependency for pandas
 
 # --- Security & Rate Limiting ---
 slowapi              # Anti-DDoS and API Rate Limiting
+PyJWT                # Supabase JWT decoding & validation
+
+# --- Utilities & PDF Generation ---
+httpx                # Async HTTP requests
+fpdf                 # PDF report generation

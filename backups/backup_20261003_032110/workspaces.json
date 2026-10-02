@@ -1,0 +1,142 @@
+[
+  {
+    "id": "d2673819-0c3a-4522-bde5-bad40df98c7c",
+    "user_id": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "name": "Define geopolitics",
+    "description": null,
+    "created_at": "2026-08-26T23:21:35.094375+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-28T22:19:01.330021+00:00",
+    "project_id": null
+  },
+  {
+    "id": "330104b2-4a11-444f-94d2-15c4762b88a1",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-08-11T00:22:49.198655+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-11T00:22:49.198655+00:00",
+    "project_id": null
+  },
+  {
+    "id": "84629a31-30ad-47f3-862d-7643c3d33940",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "us china latest news",
+    "description": null,
+    "created_at": "2026-08-11T00:22:50.086111+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-11T00:31:47.713319+00:00",
+    "project_id": null
+  },
+  {
+    "id": "be0232f1-cf39-4928-ba47-355d916e2997",
+    "user_id": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-10-01T21:02:36.907375+00:00",
+    "is_starred": false,
+    "updated_at": "2026-10-01T21:02:36.907375+00:00",
+    "project_id": null
+  },
+  {
+    "id": "6edb8c1d-f754-4991-a5ef-51348a9db7e2",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-08-14T18:22:18.684343+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-14T18:22:18.684343+00:00",
+    "project_id": null
+  },
+  {
+    "id": "de28ebab-62f5-442b-8a2d-29f84f47dcbc",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-08-08T20:03:42.955363+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-08T20:03:42.955363+00:00",
+    "project_id": null
+  },
+  {
+    "id": "504002e3-44ed-4586-bfbb-fd421fd4408f",
+    "user_id": "73f4cb86-2054-46c4-a5c9-031121b68008",
+    "name": "International Relations",
+    "description": "Academic core, syllabus, and research",
+    "created_at": "2026-08-09T14:06:07.157722+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-09T14:06:07.157722+00:00",
+    "project_id": null
+  },
+  {
+    "id": "2326d75b-87aa-44b9-8b6b-52a6eea66375",
+    "user_id": "73f4cb86-2054-46c4-a5c9-031121b68008",
+    "name": "Personal",
+    "description": "Routine, goals, and personal tracking",
+    "created_at": "2026-08-09T14:06:07.157722+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-09T14:06:07.157722+00:00",
+    "project_id": null
+  },
+  {
+    "id": "f5160a35-b40b-44c8-ae7e-fa53732b5a6e",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-08-09T16:53:54.91678+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-09T16:53:54.91678+00:00",
+    "project_id": null
+  },
+  {
+    "id": "b48457ca-4371-4900-951a-dbd8844a9e46",
+    "user_id": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "name": "latest major geopolitical news Augu...",
+    "description": null,
+    "created_at": "2026-08-09T22:53:53.631709+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-09T23:11:12.644844+00:00",
+    "project_id": null
+  },
+  {
+    "id": "d8defef8-64ae-4fe6-8180-d942cd59e5bd",
+    "user_id": "5f500c0b-34a3-49a8-9a5e-0cf99e8d9b33",
+    "name": "trending news August 5, 2026",
+    "description": null,
+    "created_at": "2026-08-05T23:19:34.414309+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-06T11:41:37.705673+00:00",
+    "project_id": null
+  },
+  {
+    "id": "0855f324-8c8b-484e-817c-40613f829b5c",
+    "user_id": "73f4cb86-2054-46c4-a5c9-031121b68008",
+    "name": "Projects",
+    "description": "GSTU AI Assistant and startup ideas",
+    "created_at": "2026-08-09T14:06:07.157722+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-09T14:06:07.157722+00:00",
+    "project_id": null
+  },
+  {
+    "id": "26a79efd-ad6b-4bc7-9c53-f59ab09e7341",
+    "user_id": "73f4cb86-2054-46c4-a5c9-031121b68008",
+    "name": "today's geopolitical major events",
+    "description": null,
+    "created_at": "2026-08-26T21:03:46.044611+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-26T22:31:36.016058+00:00",
+    "project_id": null
+  },
+  {
+    "id": "0b9a2b84-61a6-4657-88b0-155ff5b778a1",
+    "user_id": "3f91e14e-d917-460b-a21c-5b4db8a9d455",
+    "name": "New Chat",
+    "description": null,
+    "created_at": "2026-08-27T00:56:12.838015+00:00",
+    "is_starred": false,
+    "updated_at": "2026-08-27T00:56:12.838015+00:00",
+    "project_id": null
+  }
+]

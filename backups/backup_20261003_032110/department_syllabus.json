@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "code": "IR-201",
+    "title": "Political Geography",
+    "credits": 3
+  },
+  {
+    "id": 2,
+    "code": "IR-202",
+    "title": "Migration Theories",
+    "credits": 3
+  },
+  {
+    "id": 3,
+    "code": "IR-203",
+    "title": "Foreign Policy Analysis",
+    "credits": 3
+  }
+]
