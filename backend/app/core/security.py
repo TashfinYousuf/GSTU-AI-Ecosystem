@@ -140,28 +140,35 @@ def get_optional_current_user(credentials: Optional[HTTPAuthorizationCredentials
     
 async def get_authoritative_role(current_user: dict = Depends(get_current_user)) -> str:
     user_id = current_user.get("id") or current_user.get("sub")
-
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication identity."
         )
 
-    # 1️⃣ DB = primary source of truth
+    # 1️⃣ Check JWT metadata first (live session role explicitly set)
+    app_metadata = current_user.get("app_metadata") or {}
+    user_metadata = current_user.get("user_metadata") or {}
+    jwt_role = app_metadata.get("role") or user_metadata.get("role")
+    if jwt_role and str(jwt_role).strip().lower() in {"student", "faculty", "admin"}:
+        return str(jwt_role).strip().lower()
+
+    # 2️⃣ DB check
     try:
         result = supabase.table("user_profiles").select("role").eq("id", user_id).maybe_single().execute()
-        print(f"[RBAC DEBUG] user_profiles row for {user_id}: {result.data}")
-        if result.data and result.data.get("role"):
-            return str(result.data["role"]).strip().lower()
+        if result and result.data and result.data.get("role"):
+            db_role = str(result.data["role"]).strip().lower()
+            if db_role in {"student", "faculty", "admin"}:
+                return db_role
     except Exception as e:
         print(f"[RBAC] Profile lookup failed: {repr(e)}")
 
-    # 2️⃣ JWT metadata fallback
-    app_metadata = current_user.get("app_metadata") or {}
-    user_metadata = current_user.get("user_metadata") or {}
+    # 3️⃣ Super admin / Developer default fallback if no explicit role is stored
+    email = (current_user.get("email") or "").strip().lower()
+    if email in {"yousufaltashfin@gmail.com"}:
+        return "admin"
 
-    role = app_metadata.get("role") or user_metadata.get("role")
-    return str(role).strip().lower() if role else ""
+    return "student"
 
 
 async def require_faculty_or_admin(current_user: dict = Depends(get_current_user)):
@@ -170,6 +177,6 @@ async def require_faculty_or_admin(current_user: dict = Depends(get_current_user
     if role not in {"faculty", "admin"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Faculty clearance required."
+            detail="Clearance Level: Faculty required."
         )
     return current_user

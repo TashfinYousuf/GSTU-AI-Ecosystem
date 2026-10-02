@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle, FileCheck2, ShieldAlert, Sparkles, Eye, Pencil, Archive, AlertCircle, CheckCircle2, Database, RefreshCw, FileText, Trash2} from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
-import { fetchAPI } from "../../utils/api";
+import { fetchAPI, buildApiUrl } from "../../utils/api";
  
 export default function FacultyNodePage() {
-  const [activeTab, setActiveTab] = useState("analytics");
+  const [activeTab, setActiveTab] = useState("knowledge-base");
   const [tickets, setTickets] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
   const [kbDocs, setKbDocs] = useState<any[]>([]);
@@ -53,14 +53,7 @@ export default function FacultyNodePage() {
     let isMounted = true;
     const loadInitialData = async () => {
       try {
-        // Fetch tickets
-        const ticketsRes = await fetchAPI("/admin/tickets").catch(() => null);
-        if (ticketsRes?.data && isMounted) setTickets(ticketsRes.data);
-        
-        // Fetch stats if available (Fallback to default if not)
-        const statsRes = await fetchAPI("/admin/stats").catch(() => null);
-        if (statsRes?.data && isMounted) setStats(prev => ({...prev, ...statsRes.data}));
-        
+        await fetchKbDocs();
       } catch (error) {
         console.error("Failed to load initial data", error);
       } finally {
@@ -123,7 +116,7 @@ export default function FacultyNodePage() {
       formData.append("publish_date", noticeDate);
       if (noticeFile) formData.append("file", noticeFile);
  
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/notices/publish`, {
+      const res = await fetch(buildApiUrl("/admin/notices/publish"), {
         method: "POST",
         headers: { "Authorization": `Bearer ${session.access_token}` },
         body: formData,
@@ -137,140 +130,109 @@ export default function FacultyNodePage() {
     } finally { setIsPublishingNotice(false); }
   };
  
-  // 🔴 Missing File Selection Handler for Drag & Drop
+  // 🔴 File Selection Handler (Accepts PDF, TXT, DOCX, DOC, MD)
   const handleKbFileSelect = (file: File | null) => {
     if (!file) return;
-    const validTypes = ["application/pdf", "text/plain"];
-    if (!validTypes.includes(file.type)) {
-      alert("Only PDF or TXT files are supported for AI Knowledge Base.");
+    const name = file.name.toLowerCase();
+    const isValid = [".pdf", ".txt", ".docx", ".doc", ".md"].some(ext => name.endsWith(ext));
+    if (!isValid) {
+      alert("Supported formats for Knowledge Base: PDF, TXT, DOCX, DOC, MD.");
       return;
     }
     setKbFile(file);
   };
 
   // 🔴 1. State for Upload Message
-    const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   
-    // 🔴 2. Native Fetch to avoid Method Not Allowed errors
-    // Add a loading state for the refresh button
-    const [isRefreshing, setIsRefreshing] = useState(false);
-  
-    const fetchKbDocs = async () => {
-      setIsRefreshing(true); // Start spinning
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/knowledge-base`, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${session?.access_token}`,
-            "Content-Type": "application/json"
-          },
-          cache: 'no-store' 
-        });
-        
-        if (res.ok) {
-          const result = await res.json();
-          setKbDocs(result.data || []);
-        }
-      } catch (error) {
-        console.error("Fetch error:", error);
-      } finally {
-        setIsRefreshing(false); // Stop spinning
+  // 🔴 2. Add loading state for the refresh button
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchKbDocs = async () => {
+    setIsRefreshing(true); // Start spinning
+    try {
+      const res = await fetchAPI("/admin/knowledge-base");
+      if (res?.status === "success" || Array.isArray(res?.data)) {
+        setKbDocs(res.data || []);
       }
-    };
-  
-    // 🔴 Activate Delete/Archive Logic
-    // 1. Delete Document (Hard Delete)
-    const handleDeleteDoc = async (docId: string) => {
-      if (!confirm("Are you sure you want to permanently delete this document from Database and AI Vector Store?")) return;
-      
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        // Fixed the undefined URL issue!
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-        
-        const res = await fetch(`${apiUrl}/api/v1/admin/knowledge-base/${docId}`, {
-          method: "DELETE",
-          headers: { "Authorization": `Bearer ${session?.access_token}` }
-        });
-        
-        if (res.ok) {
-          setUploadMessage("Success: Document permanently deleted.");
-          fetchKbDocs(); // UI Refresh
-        } else {
-          setUploadMessage("Error: Failed to delete document.");
-        }
-      } catch (error) {
-        console.error(error);
-        setUploadMessage("Error: Network issue while deleting.");
+    } catch (error) {
+      console.error("Fetch error:", error);
+    } finally {
+      setIsRefreshing(false); // Stop spinning
+    }
+  };
+
+  // 🔴 Activate Delete/Archive Logic
+  // 1. Delete Document (Hard Delete)
+  const handleDeleteDoc = async (docId: string) => {
+    if (!confirm("Are you sure you want to permanently delete this document from Database and AI Vector Store?")) return;
+    
+    try {
+      const res = await fetchAPI(`/admin/knowledge-base/${docId}`, { method: "DELETE" });
+      if (res?.status === "success") {
+        setUploadMessage("Success: Document permanently deleted.");
+        fetchKbDocs(); // UI Refresh
+      } else {
+        setUploadMessage("Error: Failed to delete document.");
       }
-    };
-  
-    // 🔴 2. Archive Document (Soft Delete)
-    const handleArchiveDoc = async (docId: string) => {
-      if (!confirm("Archive this document? It will be hidden from the AI knowledge base.")) return;
-      
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-        
-        const res = await fetch(`${apiUrl}/api/v1/admin/knowledge-base/${docId}/archive`, {
-          method: "PUT",
-          headers: { "Authorization": `Bearer ${session?.access_token}` }
-        });
-        
-        if (res.ok) {
-          setUploadMessage("Success: Document archived successfully.");
-          fetchKbDocs(); // UI Refresh
-        }
-      } catch (error) {
-        console.error(error);
+    } catch (error) {
+      console.error(error);
+      setUploadMessage("Error: Network issue while deleting.");
+    }
+  };
+
+  // 🔴 2. Archive Document (Soft Delete)
+  const handleArchiveDoc = async (docId: string) => {
+    if (!confirm("Archive this document? It will be hidden from the AI knowledge base.")) return;
+    
+    try {
+      const res = await fetchAPI(`/admin/knowledge-base/${docId}/archive`, { method: "PUT" });
+      if (res?.status === "success") {
+        setUploadMessage("Success: Document archived successfully.");
+        fetchKbDocs(); // UI Refresh
       }
-    };
-  
-    // 🔴 3. Auto-fetch when the Knowledge Base tab is opened
-    useEffect(() => {
-      if (activeTab === "knowledge-base") {
-        fetchKbDocs();
-        setUploadMessage(null); // Reset message on tab switch
-      }
-    }, [activeTab]);
-  
-    // 🔴 4. The Updated Upload Function (No boring alerts!)
-    // KB Upload Logic (Updated for RAG 2.0 UI)
-    const handleKbUpload = async () => {
-      if (!kbFile || !kbCourseCode.trim()) {
-        setUploadMessage("Error: Course code and file are required.");
-        return;
-      }
-      
-      setIsUploading(true);
-      setUploadMessage(null); // Clear previous message
-  
-      try {
-        // 1. Get Authentication Session
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error("Authentication failed. Please log in again.");
-   
-        // 2. Prepare Form Data
-        const formData = new FormData();
-        formData.append("file", kbFile);
-        formData.append("course_code", kbCourseCode.trim());
-        formData.append("doc_type", kbDocType || "Syllabus");
-   
-        // 3. Send API Request
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/knowledge-base/upload`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${session.access_token}` },
-          body: formData,
-        });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // 🔴 3. Auto-fetch when the Knowledge Base tab is opened
+  useEffect(() => {
+    if (activeTab === "knowledge-base") {
+      fetchKbDocs();
+      setUploadMessage(null); // Reset message on tab switch
+    }
+  }, [activeTab]);
+
+  // 🔴 4. The Updated Upload Function (No boring alerts!)
+  // KB Upload Logic (Updated for RAG 2.0 UI)
+  const handleKbUpload = async () => {
+    if (!kbFile || !kbCourseCode.trim()) {
+      setUploadMessage("Error: Course code and file are required.");
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadMessage(null); // Clear previous message
+
+    try {
+      // 1. Get Authentication Session
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Authentication failed. Please log in again.");
+ 
+      // 2. Prepare Form Data
+      const formData = new FormData();
+      formData.append("file", kbFile);
+      formData.append("course_code", kbCourseCode.trim());
+      formData.append("doc_type", kbDocType || "Syllabus");
+ 
+      // 3. Send API Request via canonical buildApiUrl
+      const res = await fetch(buildApiUrl("/admin/knowledge-base/upload"), {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+        body: formData,
+      });
   
         // 4. Handle Response
         if (res.ok) {

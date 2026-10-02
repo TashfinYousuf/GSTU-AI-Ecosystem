@@ -1,16 +1,19 @@
 import os
 import uuid
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from pydantic import BaseModel
-
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.models.user import User, Workspace
 from app.schemas.user import UserResponse
 from app.core.security import get_current_user
 from app.core.database import supabase
+from app.services.database import get_vector_db
 from supabase import create_client, Client
+
 
 router = APIRouter()
 
@@ -19,7 +22,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") 
 supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-router = APIRouter()
 
 class SyncUserResponse(BaseModel):
     model_config = {"extra": "forbid"}
@@ -31,56 +33,34 @@ class RoleUpdateRequest(BaseModel):
     role: str
 
 @router.post("/sync")
-def sync_user_with_db(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user) # Phase 0 এর JWT মিডলওয়্যার
-):
-    """
-    ইউজার Supabase এ লগইন/সাইনআপ করার পর ফ্রন্টএন্ড থেকে এই এপিআই কল হবে
-    """
-    # Supabase টোকেন থেকে ইউজারের আইডি (sub) এবং ইমেইল বের করছি
-    user_id = current_user.get("sub") 
-    user_email = current_user.get("email")
-
+async def sync_user_with_db(current_user: dict = Depends(get_current_user)):
+    """Sync user and create default workspaces securely in Supabase"""
+    user_id = current_user.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
+        raise HTTPException(status_code=401, detail="Invalid user token")
 
-    # ১. চেক ইউজার আগে থেকেই ডেটাবেসে আছে কিনা
-    existing_user = db.query(User).filter(User.id == user_id).first()
-    
-    if existing_user:
-        return {
-            "message": "User already exists",
-            "is_new_user": False,
-            "user": existing_user
-        }
-
-    # ২. না থাকলে নতুন ইউজার ক্রিয়েট
-    new_user = User(
-        id=user_id,
-        email=user_email,
-        # Supabase মেটাডেটা থেকে নাম নিচ্ছি, না পেলে ডিফল্ট স্ট্রিং বসবে
-        full_name=current_user.get("user_metadata", {}).get("full_name", "Student")
-    )
-    db.add(new_user)
-    
-    # ৩. নতুন ইউজারের জন্য স্বয়ংক্রিয়ভাবে ৩টি ডিফল্ট ওয়ার্কস্পেস তৈরি
-    default_workspaces = [
-        Workspace(user_id=user_id, name="International Relations", description="Academic core, syllabus, and research"),
-        Workspace(user_id=user_id, name="Projects", description="GSTU AI Assistant and startup ideas"),
-        Workspace(user_id=user_id, name="Personal", description="Routine, goals, and personal tracking")
-    ]
-    db.add_all(default_workspaces)
-    
-    # ৪. ডেটাবেসে ফাইনালি সেভ
-    db.commit()
-    # db.refresh(new_user)
-    
-    return {
-        "message": "New user and default workspaces initialized",
-        "is_new_user": True,
-        "user": new_user
-    }
+    try:
+        # Check if workspaces already exist (Non-blocking)
+        res = await asyncio.to_thread(
+            lambda: supabase.table("workspaces").select("id").eq("user_id", user_id).execute()
+        )
+        
+        # If no workspaces, create defaults in the right Supabase table!
+        if not res.data:
+            default_workspaces = [
+                {"user_id": user_id, "name": "International Relations", "description": "Core academic materials"},
+                {"user_id": user_id, "name": "Projects & Research", "description": "Thesis and assignments"},
+                {"user_id": user_id, "name": "Personal Notes", "description": "Private study notes"}
+            ]
+            await asyncio.to_thread(
+                lambda: supabase.table("workspaces").insert(default_workspaces).execute()
+            )
+            
+        return {"status": "success", "message": "User synced and workspaces verified."}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Sync error: {e}")
+        raise HTTPException(status_code=500, detail="Database sync failed")
 
 
 # 🔴 AVATAR UPLOAD ENDPOINT

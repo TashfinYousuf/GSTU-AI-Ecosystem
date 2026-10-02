@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from google import genai
@@ -12,6 +14,8 @@ load_dotenv(override=True)
 gemini_key = os.getenv("GEMINI_API_KEY")
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 class GraphRequest(BaseModel):
     model_config = {"extra": "forbid"}
@@ -38,7 +42,7 @@ async def generate_knowledge_graph(
         if similar_docs:
             context_text = "\n\n".join([doc.page_content for doc in similar_docs])
     except Exception as e:
-        print(f"GraphRAG Context Warning: {e}")
+        logger.warning(f"GraphRAG Context Warning: {e}")
 
     # ২. Gemini কে দিয়ে JSON ফরম্যাটে Nodes & Edges বের করে আনা
     prompt = f"""You are a GraphRAG extraction AI. Analyze the topic '{request.topic}' using the provided context.

@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -11,9 +13,12 @@ from app.core.security import get_current_user
 from app.core.vector_store import get_workspace_vectorstore
 
 load_dotenv(override=True)
+
 gemini_key = os.getenv("GEMINI_API_KEY")
 
-router = APIRouter(tags=["Power-Ups"])
+router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def call_gemini_json(prompt: str) -> dict:
@@ -124,24 +129,58 @@ async def exam_predictor(req: PredictorRequest, current_user: dict = Depends(get
     if not current_user.get("sub"):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    context_text = "No past questions or syllabus found in DB. Base prediction on standard university curriculum."
+    # 🔴 RAG Integration: Fetching syllabus/past papers from Global Knowledge Base + Workspace
+    similar_docs = []
+    
+    # 1. Fetch from Global Knowledge Base (Where official syllabus, course notes, past exams are stored)
     try:
-        vectorstore = get_workspace_vectorstore(req.workspace_id)
-        similar_docs = vectorstore.similarity_search(req.course_code, k=4)
-        if similar_docs:
-            context_text = "\n".join([doc.page_content for doc in similar_docs])
-    except Exception as e:
-        print(f"RAG context fetch failed (falling back to generic prediction): {e}")
+        kb_vs = get_workspace_vectorstore("global_knowledge_base")
+        kb_matches = kb_vs.similarity_search(f"{req.course_code} syllabus past questions exam curriculum topics", k=4)
+        if kb_matches:
+            similar_docs.extend(kb_matches)
+    except Exception as kb_err:
+        logger.warning(f"Global KB search warning for exam predictor: {kb_err}")
 
-    prompt = f"""Act as an AI Exam Predictor for the university course '{req.course_code}'.
-    Analyze this context from past papers/syllabus: {context_text}
-    Predict 3 highly probable exam topics.
-    Return EXACTLY a valid JSON object:
-    {{
-        "predictions": [
-            {{"topic": "Topic Name", "probability": 85, "reason": "Why it might appear"}}
-        ]
-    }}"""
+    # 2. Fetch from Workspace if specified
+    if req.workspace_id:
+        try:
+            ws_vs = get_workspace_vectorstore(req.workspace_id)
+            ws_matches = ws_vs.similarity_search(f"{req.course_code} exam question syllabus lecture", k=3)
+            if ws_matches:
+                similar_docs.extend(ws_matches)
+        except Exception as ws_err:
+            logger.warning(f"Workspace search warning for exam predictor: {ws_err}")
+
+    if similar_docs:
+        context_parts = []
+        for d in similar_docs:
+            source = d.metadata.get("source") or d.metadata.get("filename") or "Course Material"
+            page = d.metadata.get("page_number") or d.metadata.get("page")
+            page_info = f", Page {page}" if page else ""
+            context_parts.append(f"[Source: {source}{page_info}]\n{d.page_content}")
+        context_text = "\n\n".join(context_parts)
+    else:
+        context_text = "No past questions or syllabus found in DB. Base prediction on standard university curriculum."
+
+    prompt = f"""Act as a Chief University Exam Controller and Senior Professor for Course '{req.course_code}'.
+Analyze the following curriculum, syllabus, and past exam context retrieved from the Department's Knowledge Base:
+
+--- DEPARTMENT KNOWLEDGE BASE & SYLLABUS CONTEXT ---
+{context_text}
+---------------------------------------------------
+
+Based on the syllabus coverage, repeated themes, and fundamental theoretical importance, mathematically predict 3 to 5 highly probable exam topics.
+For each topic:
+1. "topic": Clear, academic title of the topic/question area.
+2. "probability": Calculated likelihood percentage (between 65 and 95).
+3. "reason": Analytical justification referencing the syllabus units, historical question patterns, or core departmental focus (cite source file/book and page if available in context).
+
+Return EXACTLY a valid JSON object:
+{{
+    "predictions": [
+        {{"topic": "Topic Name", "probability": 85, "reason": "Why it might appear based on syllabus or past trends"}}
+    ]
+}}"""
 
     try:
         return {"status": "success", "data": call_gemini_json(prompt)}

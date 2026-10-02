@@ -36,9 +36,9 @@ from auth_logic import supabase
 from analytics_engine import render_study_logger, render_analytics_dashboard
 from database import search_context
 from auth_manager import get_user_profile, get_oauth_url
-from cloud_memory import create_new_session, save_message_to_cloud
-from payment_manager import initiate_real_sslcommerz_payment, check_subscription_status
-from usage_manager import is_model_premium, check_rate_limit, increment_usage
+from archive.legacy_streamlit.cloud_memory import create_new_session, save_message_to_cloud
+from archive.legacy_streamlit.payment_manager import initiate_real_sslcommerz_payment, check_subscription_status
+from archive.legacy_streamlit.usage_manager import is_model_premium, check_rate_limit, increment_usage
 
 # 🟢 Agentic OS Brain Imports
 from memory_db import get_or_create_student_profile, update_weakness_graph
@@ -1597,7 +1597,7 @@ def load_heavy_dependencies():
 @st.cache_resource(show_spinner=False)
 def get_agent_tools():
     """Importing inside function prevents blocking on app startup."""
-    from agent_tools import astra_core_tools
+    from archive.legacy_streamlit.agent_tools import astra_core_tools
     return astra_core_tools
 
 # Get the tools instantly from cache (Duplicate import fixed!)

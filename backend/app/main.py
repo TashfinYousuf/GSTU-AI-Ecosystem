@@ -5,16 +5,12 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.api import academic, account, admin, auth, billing, chat, department, documents, faculty, knowledge, logger, mentor, powerups, scholar, study, tools, workspaces
+from app.api import academic, account, admin, auth, billing, chat, department, documents, faculty, knowledge, logger, mentor, powerups, study, scholar, tools
 
 # 🔴 1. Import SlowAPI for Rate Limiting
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.core.limiter import limiter
-
-# 🔴 2. Initialize Limiter (Tracks by User IP)
-limiter = Limiter(key_func=get_remote_address)
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -25,6 +21,15 @@ app = FastAPI(
 
 # 🗜️ Compress all JSON payloads larger than 500 bytes (Reduces bandwidth by 70%)
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# 🛡️ Universal URL Normalizer: Fixes duplicate /api/v1/api/v1/ prefixes seamlessly
+@app.middleware("http")
+async def deduplicate_api_v1_middleware(request: Request, call_next):
+    raw_path = request.scope.get("path", "")
+    if "/api/v1/api/v1" in raw_path:
+        cleaned_path = raw_path.replace("/api/v1/api/v1", "/api/v1")
+        request.scope["path"] = cleaned_path
+    return await call_next(request)
 
 # 🔴 3. Add Exception Handler for Rate Limits
 app.state.limiter = limiter
@@ -87,7 +92,6 @@ app.include_router(study.router, prefix="/api/v1/study", tags=["Interactive Stud
 
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["Gen-Z Tools & Vision"])
 
-app.include_router(workspaces.router, prefix="/api/v1/workspaces", tags=["Workspaces"])
 
 @app.get("/")
 async def root():

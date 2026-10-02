@@ -7,7 +7,6 @@ import time
 import logging
 import streamlit as st
 from supabase import create_client, Client
-from dotenv import load_dotenv
 import base64
 
 logger = logging.getLogger(__name__)

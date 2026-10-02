@@ -213,7 +213,7 @@ def generate_smart_assessment(topic: str, user_role: str):
         random_seed = random.randint(10000, 99999)
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if user_role == "Faculty" or user_role == "Admin":
+        if str(user_role).strip().lower() in ["faculty", "admin"]:
             system_prompt = """You are an Elite Academic Question Setter for the International Relations (IR) Department.
 Your task is to generate a university-standard question paper based STRICTLY on core academic textbooks, theories, and the latest contemporary geopolitical events (RAG context).
 Randomness Seed: {random_seed} (Timestamp: {current_time})
@@ -569,45 +569,3 @@ def get_llm_engine(model_name: str):
             model_name="meta-llama/llama-4-scout-17b-16e-instruct",
             temperature=0.3
         )
-
-
-class GenZFeatureRequest(BaseModel):
-    topic: str
-    feature_type: str
-    extra_data: Optional[dict] = None
-
-@router.post("/genz-features")
-async def api_generate_genz_features(req: GenZFeatureRequest):
-    """স্টাডি হাবের ফ্ল্যাশকার্ড, ডিবেট এবং প্রেডিক্টরের জন্য API এন্ডপয়েন্ট"""
-    result = generate_genz_features(req.topic, req.feature_type, req.extra_data)
-    
-    if result["status"] == "error":
-        raise HTTPException(status_code=500, detail=result["message"])
-        
-    return result
-
-
-# ==========================================
-# 8. FASTAPI ENDPOINTS (API EXPOSURE)
-# ==========================================
-class PowerupRequest(BaseModel):
-    topic: str
-    task_type: Optional[str] = None
-    feature_type: Optional[str] = None
-    extra_data: Optional[dict] = None
-
-@router.post("/research")
-async def api_research(req: PowerupRequest):
-    """Scholar Hub: Research Gap & Lit Review Endpoint"""
-    res = generate_research_assistance(req.topic, req.task_type)
-    if res["status"] == "error":
-        raise HTTPException(status_code=500, detail=res.get("message"))
-    return res
-
-@router.post("/gamify")
-async def api_gamify(req: PowerupRequest):
-    """Study Hub: Flashcards, Predictor & Debate Endpoint"""
-    res = generate_genz_features(req.topic, req.feature_type, req.extra_data)
-    if res["status"] == "error":
-        raise HTTPException(status_code=500, detail=res.get("message"))
-    return res

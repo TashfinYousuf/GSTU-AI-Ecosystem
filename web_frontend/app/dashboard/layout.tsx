@@ -16,7 +16,16 @@ import {
   Lock, Target, ShieldAlert, Activity, MessageCircle,
   Send, Menu,
 } from "lucide-react";
-import { fetchAPI } from "../utils/api";
+import { fetchAPI, buildApiUrl } from "../utils/api";
+
+interface UserData {
+  id?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  full_name?: string;
+  [key: string]: any;
+}
 
 type ChatItem = {
   id: string;
@@ -36,37 +45,86 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
+  const isChatPage = pathname.startsWith('/dashboard/workspaces/');
 
   const [isLoading, setIsLoading] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsSidebarOpen(window.innerWidth >= 768);
+    }
+  }, []);
+
+  // 🔴 Modern ChatGPT / Gemini mobile edge swipe & custom event integration
+  useEffect(() => {
+    const handleOpenSidebarEvent = () => setIsSidebarOpen(true);
+    window.addEventListener("gstu-open-sidebar", handleOpenSidebarEvent);
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const deltaX = touchEndX - touchStartX;
+      const deltaY = touchEndY - touchStartY;
+
+      // Detect deliberate horizontal swipe
+      if (Math.abs(deltaX) > 50 && Math.abs(deltaY) < 60) {
+        if (touchStartX < 40 && deltaX > 50) {
+          // Slide in from left edge -> open drawer
+          setIsSidebarOpen(true);
+        } else if (deltaX < -50 && isSidebarOpen) {
+          // Slide left on open drawer -> close drawer
+          setIsSidebarOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener("gstu-open-sidebar", handleOpenSidebarEvent);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isSidebarOpen]);
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  // 🔴 FIX: this used to be TWO separate state variables — `settingsTab`
-  // (general/billing/rewards/memory) and `activeSettingsTab` (only ever
-  // "performance"). Because they were independent, the Performance section's
-  // visibility condition (`activeSettingsTab === "performance"`) stayed true
-  // regardless of which settingsTab button was clicked, so Performance
-  // rendered underneath every other tab at once. Merged into a single state.
   const [settingsTab, setSettingsTab] = useState("billing");
 
   const [userStats, setUserStats] = useState({ queries: 0, documents_analyzed: 0 });
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [isWipingData, setIsWipingData] = useState(false);
 
-  // 🔴 1. Mobile Sidebar State
+  // 🔴 1. Mobile Sidebar & Profile States
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false);
 
-  const [userData, setUserData] = useState({
-    name: "Scholar",
-    email: "",
-    tier: "free",
-    role: "",           // 🔴 was "student" — empty string lets the route-guard
-                         // effect correctly wait for the real value to load
-                         // instead of acting on a false default.
-    credits: 0,
-    createdAt: "",
-    avatarUrl: ""
+  const [userData, setUserData] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("gstu_cached_user");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return {
+      name: "Scholar",
+      email: "",
+      tier: "free",
+      role: "",
+      credits: 0,
+      createdAt: "",
+      avatarUrl: ""
+    };
   });
 
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -83,13 +141,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const formData = new FormData();
       formData.append("file", file);
 
-      // 🔴 FIX: Sanitize URL (Prevent double slash "//" bugs)
-      let apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      if (apiUrl.endsWith('/')) {
-        apiUrl = apiUrl.slice(0, -1);
-      }
-      
-      const res = await fetch(`${apiUrl}/api/v1/auth/avatar`, {
+      const res = await fetch(buildApiUrl("/auth/avatar"), {
         method: "POST",
         headers: { 
           "Authorization": `Bearer ${session.access_token}`
@@ -229,7 +281,12 @@ useEffect(() => {
         }),
       });
       if (res?.status === "success") {
-        setUserData(prev => ({ ...prev, name: profileDraft.full_name, email: profileDraft.email }));
+        // 🔴 prev-এর টাইপ (any অথবা আপনার User interface) উল্লেখ করে দিন
+        setUserData((prev: any) => ({
+          ...prev,
+          name: profileDraft.full_name,
+          email: profileDraft.email,
+        }));
         setIsEditingProfile(false);
       }
     } catch (err) {
@@ -245,14 +302,22 @@ useEffect(() => {
     try {
       const res = await fetchAPI("/account/role", { method: "PATCH", body: JSON.stringify({ role: newRole }) });
       if (res?.status === "success") {
-        setUserData(prev => ({ ...prev, role: newRole }));
+        setUserData((prev: any) => ({ ...prev, role: newRole }));
+        if (typeof window !== "undefined") {
+          localStorage.setItem("gstu_active_role", newRole);
+          try {
+            const cached = localStorage.getItem("gstu_cached_user");
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              parsed.role = newRole;
+              localStorage.setItem("gstu_cached_user", JSON.stringify(parsed));
+            }
+          } catch {}
+        }
+        await supabase.auth.refreshSession();
+        window.location.reload(); 
       } else {
         alert(res?.detail || "Role change failed.");
-      }
-      if (res?.status === "success") {
-      await supabase.auth.refreshSession();
-      // 🔴 Force hard reload to reset all frontend states & UI
-      window.location.reload(); 
       }
     } catch (err: any) {
       console.error("Role change failed:", err);
@@ -278,13 +343,39 @@ useEffect(() => {
     }
   };
 
-  // 🔴 Added missing handleNewChat function
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
+
+  // 🔴 Smart New Chat / AI Core Assistant: reuses existing empty chat and locks multi-clicks
   const handleNewChat = async () => {
+    if (isCreatingChat) return;
+
+    // 1. If an empty "New Chat" already exists, reuse it immediately!
+    const existingEmptyChat = chats.find(c => 
+      (c.title === "New Chat" || c.title === "Untitled Chat") && !c.project_id
+    );
+    if (existingEmptyChat) {
+      if (pathname !== `/dashboard/workspaces/${existingEmptyChat.id}`) {
+        router.push(`/dashboard/workspaces/${existingEmptyChat.id}`);
+      }
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setIsSidebarOpen(false);
+      }
+      return;
+    }
+
+    setIsCreatingChat(true);
     try {
       const res = await fetchAPI("/chat/workspaces", { method: "POST" });
       if (res && res.id) {
+        const newChat: ChatItem = {
+          id: res.id,
+          title: res.title || "New Chat",
+          project_id: null,
+          is_starred: false,
+          updated_at: new Date().toISOString()
+        };
+        setChats(prev => [newChat, ...prev]);
         router.push(`/dashboard/workspaces/${res.id}`);
-        // Auto-close sidebar on mobile
         if (typeof window !== "undefined" && window.innerWidth < 768) {
           setIsSidebarOpen(false);
         }
@@ -292,12 +383,30 @@ useEffect(() => {
     } catch (err) {
       console.error("Failed to create new chat:", err);
       alert("Failed to initialize AI Assistant. Please try again.");
+    } finally {
+      setIsCreatingChat(false);
     }
   };
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [chats, setChats] = useState<ChatItem[]>([]);
-  const [isWorkspacesLoading, setIsWorkspacesLoading] = useState(true);
+  const [projects, setProjects] = useState<Project[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("gstu_cached_projects");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [chats, setChats] = useState<ChatItem[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("gstu_cached_recent_chats");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [isWorkspacesLoading, setIsWorkspacesLoading] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [moveSubmenuChatId, setMoveSubmenuChatId] = useState<string | null>(null);
@@ -507,15 +616,20 @@ useEffect(() => {
     async function loadUser() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        setUserData({
+        const activeSavedRole = typeof window !== "undefined" ? localStorage.getItem("gstu_active_role") : null;
+        const currentRole = activeSavedRole || session.user.user_metadata?.role || session.user.app_metadata?.role || "student";
+
+        const updatedUser = {
           name: session.user.user_metadata?.full_name || "Scholar",
           email: session.user.email || "",
-          tier: session.user.user_metadata?.tier || "free",
-          role: session.user.user_metadata?.role || "student",
+          tier: session.user.app_metadata?.tier || "free",
+          role: currentRole,
           credits: session.user.user_metadata?.credits || 0,
           createdAt: session.user.created_at,
           avatarUrl: session.user.user_metadata?.avatar_url || ""
-        });
+        };
+        setUserData(updatedUser);
+        localStorage.setItem("gstu_cached_user", JSON.stringify(updatedUser));
 
         const joinDate = new Date(session.user.created_at);
         const trialEndDate = new Date(joinDate.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -523,9 +637,10 @@ useEffect(() => {
         const daysLeft = Math.ceil((trialEndDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
         setDaysLeftInTrial(daysLeft > 0 ? daysLeft : 0);
 
+        const isSuperAdmin = (session.user.email || "").toLowerCase() === 'yousufaltashfin@gmail.com' || session.user.app_metadata?.role === 'admin';
         if (
-          session.user.user_metadata?.role === 'admin' ||
-          session.user.user_metadata?.tier === 'pro_scholar' ||
+          isSuperAdmin ||
+          session.user.app_metadata?.tier === 'pro_scholar' ||
           daysLeft > 0
         ) {
           setHasPremiumAccess(true);
@@ -539,20 +654,24 @@ useEffect(() => {
 
   useEffect(() => {
     async function loadSidebarData() {
-      if (userData.role === 'guest' || !userData.email) {
+      if (userData.role === 'guest') {
         setIsWorkspacesLoading(false);
-        setProjects([]); setChats([]);
         return;
       }
 
-      setIsWorkspacesLoading(true);
       try {
         const [projRes, chatRes] = await Promise.all([
           fetchAPI("/chat/projects"),
           fetchAPI("/chat/workspaces"),
         ]);
-        if (projRes?.data) setProjects(projRes.data);
-        if (chatRes?.data) setChats(chatRes.data);
+        if (projRes?.data) {
+          setProjects(projRes.data);
+          localStorage.setItem("gstu_cached_projects", JSON.stringify(projRes.data));
+        }
+        if (chatRes?.data) {
+          setChats(chatRes.data);
+          localStorage.setItem("gstu_cached_recent_chats", JSON.stringify(chatRes.data));
+        }
       } catch (error) {
         console.error("Failed to load sidebar data:", error);
       } finally {
@@ -662,26 +781,26 @@ useEffect(() => {
       }
     }
 
-    if (pathname === '/dashboard/faculty' && userData.role === 'student') {
+    if ((pathname === '/dashboard/faculty' || pathname === '/dashboard/admin') && userData.role === 'student') {
       alert("🔒 Clearance Level: Faculty. Students cannot access this node.");
+      router.push('/dashboard');
+      return;
+    }
+
+    if (pathname === '/dashboard/study-hub' && userData.role === 'faculty') {
+      alert("🔒 Interactive Study Hub is designed for Students.");
       router.push('/dashboard');
       return;
     }
   }, [pathname, userData.role, router]);
 
   const handleLogout = async () => {
-    setIsLoading(true);
-
-    const supabase = createClient();
-      await supabase.auth.signOut();
-      
-    // লোকাল স্টোরেজ ও ক্যাশ ক্লিয়ার করা
-    localStorage.clear();
-    sessionStorage.clear();
-
-    await supabase.auth.signOut();
-    router.push("/auth/login");
-  };
+  setIsLoading(true);
+  await supabase.auth.signOut();   // uses the component-level client already in scope
+  localStorage.clear();
+  sessionStorage.clear();
+  router.push("/auth/login");
+};
 
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showGuestLockModal, setShowGuestLockModal] = useState(false);
@@ -717,26 +836,126 @@ useEffect(() => {
   return (
     <div className="flex h-screen text-gray-200 overflow-hidden font-sans bg-[url('/background_pic.png')] bg-cover bg-center bg-no-repeat" style={{ backgroundColor: 'rgba(15, 17, 21, 0.92)', backgroundBlendMode: 'overlay' }}>
     
-      {/* 🔴 MOBILE TOP HEADER (Visible only on mobile/tabs) */}
-      <div className="md:hidden absolute top-0 left-0 right-0 h-14 bg-[#171717] border-b border-white/5 flex items-center justify-between px-4 z-40">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-white/5 border border-white/10 rounded-full p-1 flex items-center justify-center">
-            <img src="/logo.png" alt="GSTU Logo" className="w-full h-full object-contain" />
-          </div>
-          <span className="text-[13px] font-bold tracking-wide text-white">GSTU IR AI</span>
-        </Link>
-        <button onClick={() => setIsSidebarOpen(true)} className="text-gray-400 hover:text-white p-2 -mr-2 transition-colors">
-          <Menu className="w-6 h-6" />
-        </button>
-      </div>
+      {/* 🔴 MOBILE TOP HEADER (Silicon Valley Product Standard - Hidden on Chat pages for ChatGPT fullscreen feel) */}
+      {!isChatPage && (
+        <header className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#171717]/95 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-4 z-40 shadow-md">
+          {/* Left Side: Brand Logo & Title */}
+          <Link href="/dashboard" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/15 p-1 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform overflow-hidden">
+              <img src="/logo.png" alt="GSTU Logo" className="w-full h-full object-contain" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-black text-white tracking-wide leading-tight">GSTU IR AI</span>
+              <span className="text-[9.5px] font-bold text-emerald-400 uppercase tracking-widest leading-none">Ecosystem</span>
+            </div>
+          </Link>
 
-      {/* 🔴 MOBILE OVERLAY */}
-      {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
-          onClick={() => setIsSidebarOpen(false)}
-        />
+          {/* Right Side: Account Profile Picture + Hamburger Menu */}
+          <div className="flex items-center gap-2.5">
+            {/* Account Profile Picture Button (Clean rounded avatar without online dot) */}
+            <div className="relative">
+              <button
+                onClick={() => setIsMobileProfileOpen(!isMobileProfileOpen)}
+                className="relative p-0.5 rounded-full border border-white/20 hover:border-indigo-400 transition-all focus:outline-none cursor-pointer"
+                title="Account Details"
+              >
+                {userData.avatarUrl ? (
+                  <img src={userData.avatarUrl} alt={userData.name} className="w-8 h-8 rounded-full object-cover shadow-inner" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-xs shadow-inner">
+                    {(userData.name || "U").charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </button>
+
+              {/* Mobile Profile Dropdown / Card */}
+              {isMobileProfileOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs" 
+                    onClick={() => setIsMobileProfileOpen(false)} 
+                  />
+                  <div className="absolute right-0 top-11 w-64 bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl z-50 p-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                      {userData.avatarUrl ? (
+                        <img src={userData.avatarUrl} alt={userData.name} className="w-10 h-10 rounded-full object-cover shadow-inner" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-inner">
+                          {(userData.name || "U").charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-white truncate">{userData.name}</p>
+                        <p className="text-[11px] text-gray-400 truncate">{userData.email || "student@gstu.ac.bd"}</p>
+                        <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          {userData.role || "Scholar"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="py-2 space-y-1">
+                      <button
+                        onClick={() => {
+                          setIsMobileProfileOpen(false);
+                          setIsSettingsOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-all cursor-pointer"
+                      >
+                        <Settings className="w-4 h-4 text-indigo-400" />
+                        <span>Account Settings</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsMobileProfileOpen(false);
+                          router.push('/dashboard/copilot');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        <span>Academic Copilot</span>
+                      </button>
+
+                      {userData.role !== 'faculty' && (
+                        <button
+                          onClick={() => {
+                            setIsMobileProfileOpen(false);
+                            router.push('/dashboard/study-hub');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-all cursor-pointer"
+                        >
+                          <Brain className="w-4 h-4 text-purple-400" />
+                          <span>Interactive Study Hub</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/10">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Hamburger Menu Button */}
+            <button 
+              onClick={() => setIsSidebarOpen(true)} 
+              className="p-2 text-gray-300 hover:text-white rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all cursor-pointer"
+              title="Open Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </div>
+        </header>
       )}
+
 
       {showGuestLockModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
@@ -886,13 +1105,15 @@ useEffect(() => {
               <h3 className="text-[10px] font-bold text-white-500 uppercase tracking-wider mb-2 ml-3">Apps & Tools</h3>
               <div className="space-y-1">
                 {/* 🔴 Replaced <Link> with <button> to enforce Security Modal */}
-                <button onClick={() => handleNavigation('/dashboard/scholar-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("scholar-hub") ? 'bg-white/10 text-white' : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
+                <button onClick={() => handleNavigation('/dashboard/scholar-hub', ['guest'])} className={`w-full flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("scholar-hub") ? 'bg-white/10 text-white' : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Brain className="w-4 h-4 text-blue-400" /> Scholar Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
                 </button>
                 
-                <button onClick={() => handleNavigation('/dashboard/study-hub', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium transition-colors rounded-lg ${pathname.includes("study-hub") ? "bg-white/10 text-white" : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
-                  <Gamepad2 className="w-4 h-4 text-rose-400" /> Interactive Study Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
-                </button>
+                {userData.role !== 'faculty' && (
+                  <button onClick={() => handleNavigation('/dashboard/study-hub', ['guest'])} className={`w-full flex items-center gap-1.5 px-3 py-2.5 text-[13px] font-medium transition-colors rounded-lg ${pathname.includes("study-hub") ? "bg-white/10 text-white" : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
+                    <Gamepad2 className="w-4 h-4 text-rose-400" /> Interactive Study Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
+                  </button>
+                )}
                 
                 <button onClick={() => handleNavigation('/dashboard/department', ['guest'])} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${pathname.includes("department") ? "bg-white/10 text-white" : "text-white hover:text-gray-200 hover:bg-white/5"}`}>
                   <Building2 className="w-4 h-4 text-blue-400" /> Department Hub {userData.role === 'guest' && <Lock className="w-3 h-3 ml-auto opacity-50" />}
@@ -1010,12 +1231,12 @@ useEffect(() => {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 relative flex flex-col h-screen bg-[#212121] pt-16 md:pt-0">
+      <main className={`flex-1 min-w-0 relative flex flex-col h-screen bg-[#212121] ${isChatPage ? "pt-0" : "pt-16"} md:pt-0`}>
         {!isSidebarOpen && (
-          <div className="absolute top-4 left-4 z-50">
+          <div className="hidden md:block absolute top-4 left-4 z-30">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2.5 bg-[#2f2f2f] text-gray-400 hover:text-white rounded-lg shadow-xl border border-white/5 transition-colors"
+              className="p-2.5 bg-[#2f2f2f] text-gray-400 hover:text-white rounded-lg shadow-xl border border-white/5 transition-colors cursor-pointer"
               title="Open sidebar"
             >
               <PanelLeft className="w-5 h-5" />
@@ -1364,7 +1585,7 @@ useEffect(() => {
                     <div className="max-w-2xl animate-in fade-in">
                       <h3 className="text-2xl font-bold text-white mb-8 flex items-center gap-3"><Gift className="w-6 h-6 text-rose-500" /> Earn Free Credits</h3>
                       <div className="bg-[#111827] border border-rose-500/20 rounded-2xl p-6 mb-6">
-                        <p className="text-gray-300 text-lg flex items-center gap-3"><div className="w-5 h-5 rounded-full bg-gradient-to-r from-gray-300 to-gray-500 flex items-center justify-center text-[11px] text-black font-bold">C</div> Your Current Balance: <strong className="text-white">{userData.credits} Credits</strong></p>
+                        <div className="text-gray-300 text-lg flex items-center gap-3"><div className="w-5 h-5 rounded-full bg-gradient-to-r from-gray-300 to-gray-500 flex items-center justify-center text-[11px] text-black font-bold"></div> Your Current Balance: <strong className="text-white">{userData.credits} Credits</strong></div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                         <button onClick={() => alert("Connecting to ad network...")} className="bg-[#1e293b] hover:bg-[#334155] border border-white/5 rounded-2xl p-6 flex items-center gap-4 transition-colors text-left">

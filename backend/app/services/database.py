@@ -1,7 +1,28 @@
 import os
+import logging
+
 from supabase import create_client, ClientOptions
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+# এনভায়রনমেন্ট ভ্যারিয়েবল লোড করা নিশ্চিত করা
+load_dotenv(override=True)
+
+# 🔴 SAFE GLOBAL SUPABASE CLIENT (Strips spaces and catches invalid keys)
+_supabase_url = os.getenv("SUPABASE_URL", "").strip()
+_supabase_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")).strip()
+
+supabase = None
+if _supabase_url and _supabase_key:
+    try:
+        supabase = create_client(_supabase_url, _supabase_key, options=ClientOptions(flow_type="implicit"))
+    except Exception as e:
+        logger.error(f"❌ Supabase Client Init Error: {e}. Please check your .env file format.")
+else:
+    logger.warning("⚠️ Supabase URL or Key is missing in .env file.")
 
 def get_vector_db():
     supabase_url = os.getenv("SUPABASE_URL")

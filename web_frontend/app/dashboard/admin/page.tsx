@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ShieldCheck, Users, Activity, Banknote, TrendingUp, HeadphonesIcon, UploadCloud, Rocket, Bell, Headset, Loader2, Brain, MessageSquare, Clock, CheckCircle, FileCheck2, ShieldAlert, Sparkles, Eye, Pencil, Archive, AlertCircle, CheckCircle2, Database, RefreshCw, FileText, Trash2} from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
-import { fetchAPI } from "../../utils/api";
+import { fetchAPI, buildApiUrl } from "../../utils/api";
  
 export default function FacultyNodePage() {
   const [activeTab, setActiveTab] = useState("analytics");
@@ -136,9 +136,6 @@ export default function FacultyNodePage() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       
-      let apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
-
       const formData = new FormData();
       formData.append("title", noticeTitle);
       formData.append("date", noticeDate);
@@ -147,7 +144,7 @@ export default function FacultyNodePage() {
         formData.append("file", noticeFile);
       }
 
-      const res = await fetch(`${apiUrl}/api/v1/admin/notices/publish`, {
+      const res = await fetch(buildApiUrl("/admin/notices/publish"), {
         method: "POST",
         headers: { "Authorization": `Bearer ${session?.access_token}` },
         body: formData,
@@ -240,21 +237,9 @@ export default function FacultyNodePage() {
   const fetchKbDocs = async () => {
     setIsRefreshing(true); // Start spinning
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/knowledge-base`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json"
-        },
-        cache: 'no-store' 
-      });
-      
-      if (res.ok) {
-        const result = await res.json();
-        setKbDocs(result.data || []);
+      const res = await fetchAPI("/admin/knowledge-base");
+      if (res?.status === "success" || Array.isArray(res?.data)) {
+        setKbDocs(res.data || []);
       }
     } catch (error) {
       console.error("Fetch error:", error);
@@ -269,18 +254,8 @@ export default function FacultyNodePage() {
     if (!confirm("Are you sure you want to permanently delete this document from Database and AI Vector Store?")) return;
     
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // Fixed the undefined URL issue!
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      
-      const res = await fetch(`${apiUrl}/api/v1/admin/knowledge-base/${docId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${session?.access_token}` }
-      });
-      
-      if (res.ok) {
+      const res = await fetchAPI(`/admin/knowledge-base/${docId}`, { method: "DELETE" });
+      if (res?.status === "success") {
         setUploadMessage("Success: Document permanently deleted.");
         fetchKbDocs(); // UI Refresh
       } else {
@@ -297,17 +272,8 @@ export default function FacultyNodePage() {
     if (!confirm("Archive this document? It will be hidden from the AI knowledge base.")) return;
     
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      
-      const res = await fetch(`${apiUrl}/api/v1/admin/knowledge-base/${docId}/archive`, {
-        method: "PUT",
-        headers: { "Authorization": `Bearer ${session?.access_token}` }
-      });
-      
-      if (res.ok) {
+      const res = await fetchAPI(`/admin/knowledge-base/${docId}/archive`, { method: "PUT" });
+      if (res?.status === "success") {
         setUploadMessage("Success: Document archived successfully.");
         fetchKbDocs(); // UI Refresh
       }
@@ -324,8 +290,8 @@ export default function FacultyNodePage() {
     }
   }, [activeTab]);
 
-  // 🔴 4. The Updated Upload Function (No boring alerts!)
-  // KB Upload Logic (Updated for RAG 2.0 UI)
+
+  // 🔴 4. The Updated Upload Function (No boring alerts, Fixed FormData, Clean Error Catching)
   const handleKbUpload = async () => {
     if (!kbFile || !kbCourseCode.trim()) {
       setUploadMessage("Error: Course code and file are required.");
@@ -347,39 +313,42 @@ export default function FacultyNodePage() {
       formData.append("course_code", kbCourseCode.trim());
       formData.append("doc_type", kbDocType || "Syllabus");
  
-      // 3. Send API Request
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/admin/knowledge-base/upload`, {
+      // 3. Send API Request via canonical buildApiUrl
+      const res = await fetch(buildApiUrl("/admin/knowledge-base/upload"), {
         method: "POST",
         headers: { "Authorization": `Bearer ${session.access_token}` },
         body: formData,
       });
 
-      // 4. Handle Response
+      // 4. Handle Response safely
       if (res.ok) {
         const data = await res.json();
         
-        // Success Message in UI (No alert)
-        setUploadMessage("Success: " + (data.message || "Document queued for background AI processing."));
+        // Success Message in UI
+        setUploadMessage("✅ Success: " + (data.message || "Document queued for background AI processing."));
         
         // Clear Inputs
         setKbFile(null); 
         setKbCourseCode("");
         
         // Auto-refresh the list from DB to show the new 'Queued' document
-        if (typeof fetchKbDocs === 'function') {
-          fetchKbDocs(); 
-        } else {
-          // Fallback if fetchKbDocs is missing
-          setKbDocs(prev => [data.document || data, ...prev]);
-        }
+        fetchKbDocs(); 
+        
       } else {
         const errorData = await res.json();
-        throw new Error(errorData.detail || "Upload failed from server.");
+        
+        // 🔴 Handle 409 Conflict smoothly without throwing unhandled exceptions
+        if (res.status === 409) {
+          setUploadMessage("⚠️ Error: This file already exists in the Knowledge Base. Please delete the old one first before re-uploading.");
+        } else {
+          setUploadMessage(`❌ Error: ${errorData.detail || "Upload failed from server."}`);
+        }
       }
     } catch (error: any) {
       console.error("Upload Error:", error); 
-      setUploadMessage(`Error: ${error.message || "Network error during upload."}`);
+      setUploadMessage(`❌ Error: ${error.message || "Network error during upload."}`);
     } finally { 
+      // 🔴 Unfreeze the button instantly
       setIsUploading(false); 
     }
   };

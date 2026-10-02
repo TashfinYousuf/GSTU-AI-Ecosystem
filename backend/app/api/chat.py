@@ -2,6 +2,7 @@ import os
 import uuid
 import re
 import asyncio
+import logging
 
 from typing import Optional
 from datetime import datetime, timezone
@@ -21,6 +22,9 @@ from app.core.vector_store import get_workspace_vectorstore
 from supabase import create_client, Client
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 # 🔴 FIX: this MUST be the `service_role` key, not the `anon` key.
 # Your backend already authenticates every request via get_current_user()
@@ -143,11 +147,30 @@ async def delete_project(project_id: str, current_user: dict = Depends(get_curre
 # 1. CREATE WORKSPACE
 @router.post("/workspaces")
 @limiter.limit("10/minute")
-
 async def create_workspace(request: Request, payload: WorkspaceCreate = WorkspaceCreate(), current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Anti-junk safeguard: if user already has an unused "New Chat" with 0 messages, reuse it!
+    existing = (
+        supabase.table("workspaces")
+        .select("id, name, project_id, is_starred")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(5)
+        .execute()
+    )
+    for ws in (existing.data or []):
+        if ws.get("name") in ["New Chat", "Untitled Chat"] and ws.get("project_id") == payload.project_id:
+            msg_check = supabase.table("messages").select("id").eq("workspace_id", ws["id"]).limit(1).execute()
+            if not msg_check.data:
+                return {
+                    "id": ws["id"],
+                    "title": ws.get("name", "New Chat"),
+                    "project_id": ws.get("project_id"),
+                    "is_starred": ws.get("is_starred", False)
+                }
 
     new_id = str(uuid.uuid4())
     supabase.table("workspaces").insert({
@@ -161,7 +184,7 @@ async def create_workspace(request: Request, payload: WorkspaceCreate = Workspac
     return {"id": new_id, "title": "New Chat", "project_id": payload.project_id, "is_starred": False}
 
 
-# 2. LIST WORKSPACES
+# 2. LIST WORKSPACES (Auto-cleans duplicate empty chats)
 @router.get("/workspaces")
 async def list_workspaces(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
@@ -175,6 +198,41 @@ async def list_workspaces(current_user: dict = Depends(get_current_user)):
         .order("created_at", desc=True)
         .execute()
     )
+    all_ws = res.data or []
+    if not all_ws:
+        return {"status": "success", "data": []}
+
+    # Identify workspaces that have real messages
+    ws_ids = [w["id"] for w in all_ws]
+    msg_rows = supabase.table("messages").select("workspace_id").in_("workspace_id", ws_ids).execute()
+    active_ws_ids = {m["workspace_id"] for m in (msg_rows.data or [])}
+
+    filtered = []
+    empty_new_chat_found = False
+    junk_ids_to_clean = []
+
+    for w in all_ws:
+        ws_id = w["id"]
+        has_msgs = ws_id in active_ws_ids
+        is_empty_new_chat = (w.get("name") in ["New Chat", "Untitled Chat"]) and not w.get("project_id") and not has_msgs
+
+        if is_empty_new_chat:
+            if not empty_new_chat_found:
+                # Keep only the latest empty New Chat
+                empty_new_chat_found = True
+                filtered.append(w)
+            else:
+                # Discard and queue duplicate empty New Chats for cleanup
+                junk_ids_to_clean.append(ws_id)
+        else:
+            filtered.append(w)
+
+    if junk_ids_to_clean:
+        try:
+            supabase.table("workspaces").delete().in_("id", junk_ids_to_clean).execute()
+        except Exception as e:
+            logger.warning(f"Error purging duplicate empty chats: {e}")
+
     workspaces = [
         {
             "id": w["id"],
@@ -183,9 +241,39 @@ async def list_workspaces(current_user: dict = Depends(get_current_user)):
             "is_starred": w.get("is_starred", False),
             "updated_at": w.get("updated_at", w.get("created_at")),
         }
-        for w in (res.data or [])
+        for w in filtered
     ]
     return {"status": "success", "data": workspaces}
+
+
+# 2.1 GET SINGLE WORKSPACE
+@router.get("/workspaces/{workspace_id}")
+async def get_workspace(workspace_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    res = (
+        supabase.table("workspaces")
+        .select("*")
+        .eq("id", workspace_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    w = res.data
+    return {
+        "status": "success",
+        "data": {
+            "id": w["id"],
+            "title": w.get("name", "New Chat"),
+            "project_id": w.get("project_id"),
+            "is_starred": w.get("is_starred", False),
+            "updated_at": w.get("updated_at", w.get("created_at")),
+        }
+    }
 
 
 @router.patch("/workspaces/{workspace_id}")
@@ -400,20 +488,48 @@ async def chat_stream(request: Request, chat_req: ChatRequest, current_user: dic
         db_context = ""       # local RAG only
         web_context = ""      # live web search only — was being merged into db_context before
         source_links = set()
+        local_citations = []
+        retrieved_docs = []
         used_web = False
         is_bengali = bool(re.search(r'[\u0980-\u09FF]', latest_q))
 
-        # RAG (unchanged)
-        if not is_global_bot:
+        # 🧠 RAG Retrieval: Check Workspace Documents + Central Department Knowledge Base
+        # 1. Workspace documents (if workspace_id is provided)
+        if chat_req.workspace_id and not is_global_bot:
             try:
-                vectorstore = get_workspace_vectorstore(chat_req.workspace_id)
-                docs = vectorstore.similarity_search(latest_q, k=4)
-                if docs:
-                    db_context = "\n\n".join([f"Local Doc: {d.page_content}" for d in docs])
-                    for d in docs:
-                        source_links.add(d.metadata.get('source', 'Uploaded Document'))
+                ws_vs = get_workspace_vectorstore(chat_req.workspace_id)
+                ws_docs = ws_vs.similarity_search(latest_q, k=4)
+                if ws_docs:
+                    retrieved_docs.extend(ws_docs)
             except Exception as e:
-                print(f"RAG Retrieval Error: {e}")
+                logger.warning(f"Workspace RAG Retrieval Error: {e}")
+
+        # 2. Central Department Knowledge Base (Curriculum books, syllabus, lecture materials)
+        try:
+            kb_vs = get_workspace_vectorstore("global_knowledge_base")
+            kb_docs = kb_vs.similarity_search(latest_q, k=4)
+            if kb_docs:
+                retrieved_docs.extend(kb_docs)
+        except Exception as e:
+            logger.warning(f"Global Knowledge Base RAG Retrieval Error: {e}")
+
+        # Format context with clean document titles and exact page numbers
+        if retrieved_docs:
+            formatted_chunks = []
+            for i, d in enumerate(retrieved_docs):
+                src = d.metadata.get("source") or d.metadata.get("filename") or "Department Textbook"
+                page = d.metadata.get("page_number") or d.metadata.get("page")
+                page_str = f"Page {page}" if page else "Excerpt"
+                formatted_chunks.append(f"[Document {i+1}: 《{src}》, {page_str}]\n{d.page_content}")
+
+                citation_badge = f"{src}" + (f" (p. {page})" if page else "")
+                if citation_badge not in local_citations:
+                    local_citations.append(citation_badge)
+
+            db_context = "\n\n".join(formatted_chunks)
+        else:
+            db_context = "No internal academic documents or textbooks matched this query."
+
 
         # Live web search (unchanged logic, but now writes to web_context, not db_context)
         live_keywords = ["current", "latest", "now", "today", "update", "news", "war", "conflict", "crisis", "বর্তমান", "আজকের", "খবর", "bortoman", "bishwer", "ajker"]
@@ -491,17 +607,19 @@ async def chat_stream(request: Request, chat_req: ChatRequest, current_user: dic
     🧠 STUDENT STATE: Focus Topic "{user_focus}", Last Mood (1-5): {last_mood}. If mood is low, be encouraging; if high, go deeper.
 
     🛡️ ZERO-HALLUCINATION & CRITICAL INSTRUCTIONS (MUST OBEY):
-    1. TIME-AWARENESS & NEWS ACCURACY: Distinguish strictly between historical academic data (Local Database) and breaking news (Live Web Data).
+    1. TIME-AWARENESS & NEWS ACCURACY: Distinguish strictly between historical academic data (Local Database Context) and breaking news (Live Web Data).
     2. BANGLISH = BENGALI SCRIPT OUTPUT: If the user asks a question in "Banglish", you MUST deeply understand the query, but your OUTPUT MUST BE ENTIRELY IN PURE BENGALI SCRIPT (বাংলা ফন্ট).
-    3. STRICT FACT-GROUNDING (0% Hallucination): Base your answer ONLY on the provided context.
-    4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, and Strategic Consequences.
-    5. SEAMLESS INTEGRATION: Combine local theory with web updates naturally.
-
-    6. INLINE CITATIONS & REFERENCES (STRICT): Use numeric inline citations like [1], [2] and give the sources name in the Reference section.
-    7. FORMATTING: Use bold text and bullet points for key terms. Always use bullet points or numbered lists when explaining multiple concepts. Add 2-3 follow up questions at the end of your response.
+    3. STRICT FACT-GROUNDING (0% Hallucination): Base your core academic analysis directly on the provided Local Database Context.
+    4. ELITE ACADEMIC DEPTH: Proactively analyze Root Causes, Major Flashpoints, Theoretical Paradigms, and Strategic Consequences.
+    5. SEAMLESS INTEGRATION: Combine local textbook theories with live web updates naturally.
+    6. EXPLICIT BOOK & PAGE CITATIONS (ZERO HALLUCINATION):
+       - When citing concepts or data from the LOCAL DATABASE CONTEXT, you MUST explicitly state the book/document title and page number as provided in the metadata (e.g., "According to 《Geopolitics: The Geography of International Relations》, Page 12..." or "[1] 《Globalization of World Politics》, p. 84").
+       - In Bengali: (যেমন: "《Geopolitics》 বইয়ের ১২ নম্বর পৃষ্ঠা অনুযায়ী...").
+       - NEVER invent or hallucinate book titles, authors, or page numbers that are not in the context.
+    7. FORMATTING: Use bold text and bullet points for key terms. Always use bullet points or numbered lists when explaining multiple concepts. Add 2-3 thoughtful follow-up questions at the end.
     8. SPACING: Add double line breaks between distinct points or sections.
-    8. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
-    9. FOUNDER: Your creator is Tashfin Yousuf, an undergraduate student at GSTU.
+    9. MATCH LANGUAGE EXACTLY: If English, answer in English. If Bengali, answer in Bengali.
+    10. FOUNDER: Your creator is Tashfin Yousuf, an undergraduate student at GSTU.
 
     --- CONVERSATION HISTORY ---
     {history_ctx}
@@ -584,12 +702,17 @@ async def chat_stream(request: Request, chat_req: ChatRequest, current_user: dic
 
         # 🔴 FIX: citations were BUILT but never yielded — silently discarded every time.
         # Also the </details></div> tags were never closed in the original (broken HTML).
-        if source_links:
-            source_text = "\n\n <div style='margin-top: 15px;'><details><summary style='cursor: pointer; font-weight: 600; color: white;'>📚 View Citations & Sources</summary><div style='padding-top: 10px;'>"
+        if local_citations or source_links:
+            source_text = "\n\n <div style='margin-top: 15px;'><details><summary style='cursor: pointer; font-weight: 600; color: white;'>📚 View Citations & Sources (তথ্যসূত্র)</summary><div style='padding-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;'>"
+            for doc_cite in local_citations:
+                source_text += f"\n <span style='background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 500;'>📖 {doc_cite}</span>"
             for src in source_links:
-                domain = src.split('/')[2].replace('www.', '') if '//' in str(src) else src
-                source_text += f"\n\n <a href='{src}' target='_blank' style='background: rgba(16, 163, 127, 0.1); border: 1px solid rgba(16, 163, 127, 0.4); color: inherit; padding: 4px 12px; border-radius: 16px; text-decoration: none; font-size: 12px; margin-right: 8px; display: inline-block;'>🔗 {domain}</a>"
-            source_text += "</div></details></div>"  # was never closed before
+                if str(src).startswith("http://") or str(src).startswith("https://"):
+                    domain = src.split('/')[2].replace('www.', '') if '//' in str(src) else src
+                    source_text += f"\n <a href='{src}' target='_blank' rel='noopener noreferrer' style='background: rgba(16, 163, 127, 0.15); border: 1px solid rgba(16, 163, 127, 0.4); color: #6ee7b7; padding: 4px 12px; border-radius: 16px; text-decoration: none; font-size: 12px; font-weight: 500;'>🌐 {domain}</a>"
+                else:
+                    source_text += f"\n <span style='background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 500;'>📖 {src}</span>"
+            source_text += "\n</div></details></div>"
             full_ai_response += source_text
             yield source_text
         if used_web:

@@ -1,13 +1,123 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import React, { useState, useEffect, useRef, use } from "react";
 import rehypeRaw from "rehype-raw";
-import { ArrowUp, Paperclip, Database, Globe, Activity, BrainCircuit, Loader2, Lock, Crown, X, FileText, Trash2, Sparkles, Brain, PenTool, CheckSquare, Clock, Network, Bell, Mic, MicOff, Zap, ChevronDown, AlertCircle, Volume2, Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, TrendingUp, BookOpen, Target } from "lucide-react";
+import { ArrowUp, Paperclip, Database, Globe, Activity, BrainCircuit, Loader2, Lock, Crown, X, FileText, Trash2, Sparkles, Brain, PenTool, CheckSquare, Clock, Network, Bell, Mic, MicOff, Zap, ChevronDown, AlertCircle, Volume2, Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, TrendingUp, BookOpen, Target, Menu} from "lucide-react";
 import { createClient } from "../../../utils/supabase/client";
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { fetchAPI, BASE_URL } from "../../../utils/api";
+import { fetchAPI, BASE_URL, buildApiUrl } from "../../../utils/api";
+
+
+interface DocumentStatusProps {
+  docId: string;
+  initialStatus: string;
+  totalChunks: number;
+  initialProcessed: number;
+  errorMsg?: string;
+}
+
+const DocumentStatusIndicator: React.FC<DocumentStatusProps> = ({
+  docId,
+  initialStatus,
+  totalChunks,
+  initialProcessed,
+  errorMsg
+}) => {
+  const [status, setStatus] = React.useState<string>(initialStatus);
+  const [processedChunks, setProcessedChunks] = React.useState<number>(initialProcessed);
+  const [errorMessage, setErrorMessage] = React.useState<string | undefined>(errorMsg);
+
+  React.useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+
+    if (status === "processing" || status === "queued") {
+      interval = setInterval(async () => {
+        try {
+          // 🔴 2. FIX: Auth Token (Using your existing createClient)
+          const supabase = createClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (!session?.access_token) return;
+
+          // 🔴 3. FIX: Fetch with Headers
+          const res = await fetch(buildApiUrl(`/documents/status/${docId}`), {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`
+            }
+          });
+
+          // 🔴 4. FIX: Stop HTML parsing crashes
+          if (!res.ok) throw new Error("Status endpoint failed");
+
+          const data = await res.json();
+          
+          if (data) {
+            const newStatus = data.status === "completed" ? "active" : data.status;
+            setStatus(newStatus);
+            setProcessedChunks(data.processed_chunks || 0);
+            setErrorMessage(data.error_message);
+
+            if (newStatus === "active" || newStatus === "failed") {
+              clearInterval(interval);
+            }
+          }
+        } catch (error) {
+          console.warn("Polling warning (ignoring safely):", error);
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [status, docId]);
+
+  return (
+    <div className="flex flex-col items-end w-full">
+      {status === "queued" && (
+        <span className="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full uppercase tracking-wider">
+          ⏳ Queued
+        </span>
+      )}
+
+      {status === "processing" && (
+        <div className="w-full text-right">
+          <span className="flex justify-end items-center gap-1.5 text-xs font-bold text-blue-400 mb-1.5 uppercase tracking-wider">
+            🔄 Ingesting AI Vectors
+          </span>
+          {totalChunks > 0 && (
+            <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+              <div
+                className="bg-blue-500 h-full transition-all duration-500 ease-out"
+                style={{ width: `${(processedChunks / totalChunks) * 100}%` }}
+              ></div>
+            </div>
+          )}
+          <p className="text-[10px] text-gray-500 mt-1">
+            {processedChunks} / {totalChunks} Chunks
+          </p>
+        </div>
+      )}
+
+      {(status === "active" || status === "completed") && (
+        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded-full uppercase tracking-wider">
+          ✅ Active
+        </span>
+      )}
+
+      {status === "failed" && (
+        <span
+          className="flex items-center gap-1.5 text-xs font-bold text-rose-400 bg-rose-400/10 px-3 py-1 rounded-full uppercase tracking-wider"
+          title={errorMessage}
+        >
+          ⚠️ Failed
+        </span>
+      )}
+    </div>
+  );
+};
 
 // const API_HOST = "http://127.0.0.1:8000/api/v1"; // 🔴 standardized — file previously
 // mixed "http://localhost:8000" and "http://127.0.0.1:8000" across different
@@ -81,16 +191,16 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
       try {
         const supabase = createClient();
         const [wsResult, histResult, sessionResult] = await Promise.allSettled([
-          fetchAPI("/chat/workspaces"),
+          fetchAPI(`/chat/workspaces/${workspaceId}`),
           fetchAPI(`/chat/history/${workspaceId}`),
           supabase.auth.getSession(),
         ]);
 
         if (!isMounted) return;
 
-        if (wsResult.status === "fulfilled" && wsResult.value?.data) {
-          const currentWs = wsResult.value.data.find((ws: any) => ws.id === workspaceId);
-          if (currentWs) setWorkspaceName(currentWs.title || "Academic Workspace");
+        if (wsResult.status === "fulfilled" && wsResult.value) {
+          const wsData = wsResult.value?.data || wsResult.value;
+          if (wsData?.title) setWorkspaceName(wsData.title);
         }
 
         if (histResult.status === "fulfilled" && histResult.value?.data) {
@@ -185,9 +295,9 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   };
 
   const [selectedModel, setSelectedModel] = useState<{ id: string; name: string; icon: React.ReactNode; isPremium: boolean }>({
-    id: "gemini-2.5-flash",
-    name: "Web Search (Gemini 2.5)",
-    icon: <Globe className="w-4 h-4 text-emerald-400" />,
+    id: "openai/gpt-oss-120b",
+    name: "Fast Engine",
+    icon: <Zap className="w-4 h-4 text-emerald-400" />,
     isPremium: false
   });
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
@@ -206,7 +316,7 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
 
     setIsTyping(true);
     const uploadingMsgId = crypto.randomUUID();
-    // 🔴 FIX: role was "ai" — standardized to "assistant" to match backend + rest of UI
+    // 🔴 Role standardized to "assistant"
     setMessages(prev => [...prev, { id: uploadingMsgId, role: "assistant", content: `Uploading **${file.name}**...` }]);
 
     const supabase = createClient();
@@ -218,20 +328,31 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
     formData.append("workspace_id", workspaceId);
 
     try {
-      const res = await fetch(`${BASE_URL}/documents/upload`, {
+      // 🔴 Make sure the URL path is exactly matching your FastAPI routes
+      const res = await fetch(buildApiUrl("/documents/upload"), {
         method: "POST",
         headers: { "Authorization": `Bearer ${session.access_token}` },
         body: formData
       });
+      
       if (res.ok) {
         const data = await res.json();
-        setMessages(prev => prev.map(msg => msg.id === uploadingMsgId ? { ...msg, content: `✅ **Success!** ${data.message}.` } : msg));
-        fetchWorkspaceData();
+        setMessages(prev => prev.map(msg => msg.id === uploadingMsgId ? { ...msg, content: `✅ **Success!** ${data.message}` } : msg));
+        
+        // 🔴 Isolate history fetch so its errors don't mask the upload success
+        try {
+          await fetchWorkspaceData();
+        } catch (historyErr) {
+          console.warn("History refresh ignored:", historyErr);
+        }
       } else {
-        throw new Error("Upload failed");
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || `Server Error: ${res.status}`);
       }
-    } catch (error) {
-      setMessages(prev => prev.map(msg => msg.id === uploadingMsgId ? { ...msg, content: `❌ **Error:** Failed to process document.` } : msg));
+    } catch (error: any) {
+      console.error("🔥 ACTUAL FRONTEND ERROR:", error);
+      // 🔴 Now it will show the REAL error, not a hidden one
+      setMessages(prev => prev.map(msg => msg.id === uploadingMsgId ? { ...msg, content: `❌ **Error:** ${error.message}` } : msg));
     } finally {
       setIsTyping(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -376,25 +497,86 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
   
 
   return (
-    <div className="flex flex-col h-screen bg-[#212121] font-sans text-gray-200 overflow-hidden w-full">
+    <div className="flex flex-col h-full bg-[#212121] font-sans text-gray-200 overflow-hidden w-full">
 
-      {/* 🔴 FIX: header was duplicated — an outer h-16 flex container wrapped
-          an IDENTICAL inner h-16 w-full container that held only the workspace
-          name, while the Mentor/Knowledge Base buttons sat as a sibling of that
-          inner div. Because the inner div was `w-full`, it consumed the entire
-          flex row and pushed/wrapped the buttons out of place. Now it's a
-          single header with the name on the left and actions on the right. */}
-      <div className="shrink-0 w-full h-16 bg-[#212121] border-b border-white/5 flex items-center justify-between px-6 z-20">
-        <div className="font-medium text-gray-200 flex items-center gap-2">
-          {workspaceName} <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] uppercase rounded-full border border-indigo-500/20">Academic Mode</span>
+      <div className="shrink-0 w-full h-14 sm:h-16 bg-[#212121] border-b border-white/5 flex items-center justify-between px-3 sm:px-6 z-20">
+        <div className="font-medium text-gray-200 flex items-center gap-2 min-w-0 pr-2">
+          {/* Mobile Sidebar Hamburger Toggle */}
+          <button
+            onClick={() => window.dispatchEvent(new Event('gstu-open-sidebar'))}
+            className="md:hidden p-1.5 -ml-1 mr-1 text-gray-400 hover:text-white rounded-xl bg-white/5 border border-white/10 active:scale-95 transition-all cursor-pointer"
+            title="Open Menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          <span className="truncate max-w-[130px] sm:max-w-xs text-sm sm:text-base font-semibold text-white">{workspaceName}</span>
+          <span className="hidden sm:inline-block px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] uppercase font-bold rounded-full border border-indigo-500/20 shrink-0">Academic Mode</span>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsMentorMode(!isMentorMode)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${isMentorMode ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-[#2f2f2f] text-orange-400 border border-orange-500/20'}`}>
-            <Brain className="w-4 h-4" /> {isMentorMode ? "Mentor Active" : "Ask Mentor"}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button onClick={() => setIsMentorMode(!isMentorMode)} className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${isMentorMode ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-[#2f2f2f] text-orange-400 border border-orange-500/20'}`} title={isMentorMode ? "Mentor Active" : "Ask Mentor"}>
+            <Brain className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">{isMentorMode ? "Mentor Active" : "Ask Mentor"}</span>
+            <span className="sm:hidden">{isMentorMode ? "Mentor" : "Mentor"}</span>
           </button>
-          <button onClick={() => setIsKbOpen(!isKbOpen)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isKbOpen ? 'bg-indigo-500/20 text-indigo-400' : 'bg-[#2f2f2f] text-gray-400 hover:text-gray-200'}`}>
-            <Database className="w-4 h-4" /> Knowledge Base <span className="bg-white/10 px-1.5 py-0.5 rounded text-xs ml-1">{documents.length}</span>
+          <button onClick={() => setIsKbOpen(!isKbOpen)} className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${isKbOpen ? 'bg-indigo-500/20 text-indigo-400' : 'bg-[#2f2f2f] text-gray-400 hover:text-gray-200'}`} title="Knowledge Base">
+            <Database className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">Knowledge Base</span>
+            <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] sm:text-xs ml-0.5">{documents.length}</span>
           </button>
+          
+
+          {/* Sliding Knowledge Base Panel */}
+          <div className={`absolute top-14 sm:top-16 right-0 bottom-0 w-80 max-w-[85vw] bg-[#1a1a1a] border-l border-white/5 z-30 transform transition-transform duration-300 ease-in-out flex flex-col ${isKbOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className="p-4 border-b border-white/5 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-200 flex items-center gap-2">
+                <Database className="w-4 h-4 text-indigo-400" /> Workspace Data
+              </h3>
+              <button onClick={() => setIsKbOpen(false)} className="text-gray-500 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {documents.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center mt-10">No documents uploaded yet.</p>
+              ) : (
+                documents.map((doc: any) => (
+                  <div key={doc.id} className="flex flex-col p-3 rounded-xl bg-[#2f2f2f] border border-white/5 group relative overflow-hidden transition-all hover:bg-[#383838]">
+                    
+                    {/* Top Row: Icon, Filename, Delete */}
+                    <div className="flex items-start gap-3">
+                      <FileText className="w-8 h-8 text-indigo-400 shrink-0 p-1.5 bg-indigo-500/10 rounded-lg" />
+                      <div className="flex-1 min-w-0 pr-8">
+                        <p className="text-sm font-medium text-gray-200 truncate" title={doc.filename}>
+                          {doc.filename}
+                        </p>
+                      </div>
+                      {/* Delete Button */}
+                      <button 
+                        onClick={() => handleDeleteDoc(doc.id)} 
+                        className="absolute right-2 top-2 p-1.5 bg-red-500/10 text-red-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 transition-all"
+                        title="Delete Document"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Bottom Row: Live Polling Status Component */}
+                    <div className="mt-3 w-full border-t border-white/5 pt-2">
+                      <DocumentStatusIndicator 
+                        docId={doc.id} 
+                        initialStatus={doc.status || "processing"} 
+                        totalChunks={doc.total_chunks || doc.chunk_count || 0} 
+                        initialProcessed={doc.processed_chunks || 0} 
+                        errorMsg={doc.error_message || doc.error_msg} 
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -751,6 +933,91 @@ export default function WorkspaceChatPage({ params }: { params: Promise<{ worksp
           GSTU Assistant can make mistakes. Verify important academic information.
         </p>
       </div>
+
+      {/* 🔴 KNOWLEDGE GRAPH / CONCEPT MAP MODAL */}
+      {isGraphOpen && graphData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in">
+          <div className="bg-[#171717] border border-white/10 rounded-3xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#121212]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Concept Map & Knowledge Graph
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
+                      {graphData.nodes?.length || 0} Entities
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400">Interactive Concept Network for &quot;{graphTopic}&quot;</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsGraphOpen(false)}
+                className="p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Graph Canvas */}
+            <div className="flex-1 relative bg-[#0b0c10] overflow-hidden flex items-center justify-center">
+              {graphData.nodes && graphData.nodes.length > 0 ? (
+                <ForceGraph2D
+                  graphData={graphData}
+                  nodeLabel="id"
+                  nodeAutoColorBy="group"
+                  nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+                    const label = node.id || "";
+                    const fontSize = Math.max(12 / globalScale, 3);
+                    ctx.font = `${fontSize}px Sans-Serif`;
+                    const textWidth = ctx.measureText(label).width;
+                    const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.4);
+
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+                    ctx.fillRect(
+                      node.x - bckgDimensions[0] / 2,
+                      node.y - bckgDimensions[1] / 2,
+                      bckgDimensions[0],
+                      bckgDimensions[1]
+                    );
+
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = node.color || "#818cf8";
+                    ctx.fillText(label, node.x, node.y);
+
+                    node.__bckgDimensions = bckgDimensions;
+                  }}
+                  linkDirectionalArrowLength={3.5}
+                  linkDirectionalArrowRelPos={1}
+                  linkColor={() => "rgba(255, 255, 255, 0.25)"}
+                  linkWidth={1.5}
+                />
+              ) : (
+                <div className="text-center text-gray-500 p-8">
+                  <Brain className="w-12 h-12 mx-auto mb-3 opacity-30 text-indigo-400" />
+                  <p className="text-sm font-medium">No entity relations could be mapped for this topic.</p>
+                  <p className="text-xs text-gray-600 mt-1">Try uploading course documents first or picking a broader IR topic.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Instructions */}
+            <div className="px-6 py-3 border-t border-white/10 bg-[#121212] flex items-center justify-between text-xs text-gray-400">
+              <span>💡 Drag nodes to rearrange • Scroll to zoom in/out</span>
+              <button
+                onClick={() => setIsGraphOpen(false)}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors cursor-pointer"
+              >
+                Close Visualizer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

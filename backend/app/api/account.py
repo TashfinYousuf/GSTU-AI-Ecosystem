@@ -100,16 +100,24 @@ async def update_role(payload: RoleUpdate, current_user: dict = Depends(get_curr
     try:
         # Preserve existing metadata on the target user rather than wiping it
         target_user = supabase.auth.admin.get_user_by_id(target_id)
-        existing_meta = getattr(target_user, "app_metadata", None) or {}
-        if isinstance(target_user, dict):
-            existing_meta = target_user.get("app_metadata", {}) or {}
+        u_obj = getattr(target_user, "user", target_user)
+        existing_app_meta = getattr(u_obj, "app_metadata", None) or {}
+        existing_user_meta = getattr(u_obj, "user_metadata", None) or {}
+        if isinstance(u_obj, dict):
+            existing_app_meta = u_obj.get("app_metadata", {}) or {}
+            existing_user_meta = u_obj.get("user_metadata", {}) or {}
 
+        # 🔴 Update BOTH app_metadata and user_metadata so client SDK and JWT reflect the new role immediately
         supabase.auth.admin.update_user_by_id(target_id, {
-            "app_metadata": {**existing_meta, "role": payload.role}
+            "app_metadata": {**existing_app_meta, "role": payload.role},
+            "user_metadata": {**existing_user_meta, "role": payload.role}
         })
 
-        # Keep user_profiles in sync — get_authoritative_role() checks this table first
-        supabase.table("user_profiles").update({"role": payload.role}).eq("id", target_id).execute()
+        # Keep user_profiles in sync — get_authoritative_role() checks this table
+        try:
+            supabase.table("user_profiles").upsert({"id": target_id, "role": payload.role}).execute()
+        except Exception as pe:
+            print(f"user_profiles upsert note: {pe}")
 
         return {"status": "success", "message": f"Role updated to {payload.role}."}
     except Exception as e:

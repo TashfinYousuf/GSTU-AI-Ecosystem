@@ -1,17 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 from app.core.security import get_current_user
 from app.services.core_agents import generate_research_assistance, generate_genz_features
 
 router = APIRouter(tags=["Scholar Hub"])
 
 class ActionRequest(BaseModel):
-    model_config = {"extra": "ignore"}
-    topic: Optional[str] = None
-    task_mode: Optional[str] = None
-    question: Optional[str] = None
-    answer: Optional[str] = None
+    model_config = {"extra": "forbid"}
+    topic: str = None
+    task_mode: str = None
+    question: str = None
+    answer: str = None
 
 @router.post("/{endpoint}")
 async def process_scholar_action(endpoint: str, req: ActionRequest, current_user: dict = Depends(get_current_user)):

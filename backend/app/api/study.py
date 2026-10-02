@@ -17,7 +17,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 gemini_key = os.getenv("GEMINI_API_KEY")
 
-router = APIRouter(tags=["Study Hub"])
+router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,11 @@ class AssessmentRequest(BaseModel):
     topic: str
     difficulty: str = "Medium"
     role: str = "Student"
+
+# 🔴 1. Add this Pydantic Model to safely parse JSON body from frontend
+class XPAwardRequest(BaseModel):
+    amount: float
+
 
 def call_gemini_json(prompt: str) -> dict:
     client = genai.Client(api_key=gemini_key)
@@ -82,21 +87,30 @@ async def get_gamification_profile(current_user: dict = Depends(get_optional_cur
 
 
 @router.post("/xp")
-async def award_xp(amount: float, current_user: dict = Depends(get_optional_current_user)):
+async def award_xp(req: XPAwardRequest, current_user: dict = Depends(get_optional_current_user)):
     user_id = current_user.get("sub") if current_user else "guest_session"
+    
     if user_id == "guest_session":
-        return {"status": "success", "xp": 0}
+        return {"status": "success", "xp": req.amount}
 
     try:
+        # Fetch current XP
         existing = supabase.table("user_profiles").select("total_xp").eq("id", user_id).execute()
-        current_xp = existing.data[0]["total_xp"] if existing.data else 0
-        new_xp = max(0.0, current_xp + amount)
+        current_xp = float(existing.data[0].get("total_xp", 0)) if existing.data else 0.0
+        
+        new_xp = max(0.0, current_xp + req.amount)
 
-        supabase.table("user_profiles").update({
+        # 🔴 Update database (Ensure response is captured to verify RLS isn't blocking it)
+        update_res = supabase.table("user_profiles").update({
             "total_xp": new_xp,
         }).eq("id", user_id).execute()
 
+        # If data is empty, RLS might be blocking the update
+        if not update_res.data:
+            print(f"Warning: XP update for {user_id} returned no data. Check Supabase RLS policies.")
+
         return {"status": "success", "xp": new_xp}
+        
     except Exception as e:
         print(f"award_xp error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -315,50 +329,3 @@ async def submit_flashcard_answer(is_correct: bool, current_user: dict = Depends
         return {"status": "success", "xp_delta": xp_delta, "total_xp": new_xp}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==================================================================
-# ⚔️ DEBATE ARENA ENGINE (Authoritative Timers)
-# ==================================================================
-@router.post("/debate/start")
-async def start_debate(duration_mins: int, current_user: dict = Depends(get_optional_current_user)):
-    user_id = current_user.get("sub") if current_user else "guest_session"
-    tier, _ = get_effective_tier(user_id)
-    
-    # 🔴 Server-Side Duration Enforcement
-    if tier == "free" and duration_mins > 15:
-        raise HTTPException(status_code=403, detail="Free users can only debate up to 15 mins. Upgrade for 60-min endurance battles.")
-    if duration_mins > 60:
-        raise HTTPException(status_code=400, detail="Maximum debate time is 60 mins.")
-        
-    return {
-        "status": "success", 
-        "duration_seconds": duration_mins * 60,
-        "started_at": datetime.datetime.utcnow().isoformat()
-    }
-
-@router.post("/debate/judge")
-async def judge_debate(req: StudyRequest, duration_mins: int, current_user: dict = Depends(get_optional_current_user)):
-    user_id = current_user.get("sub") if current_user else "guest_session"
-    
-    res = generate_genz_features(req.topic, "judge", req.extra_data)
-    
-    if res["status"] == "success" and user_id != "guest_session":
-        verdict = res["data"]
-        # 🔴 XP = Duration if User Wins!
-        if verdict.get("winner", "").lower() == "user":
-            xp_reward = float(duration_mins)
-            
-            supabase.table("xp_transactions").insert({
-                "user_id": user_id, "amount": xp_reward, "source": "debate_win"
-            }).execute()
-            
-            # Aggregate XP
-            user_res = supabase.table("user_profiles").select("total_xp").eq("id", user_id).execute()
-            new_xp = user_res.data[0].get("total_xp", 0) + xp_reward
-            supabase.table("user_profiles").update({"total_xp": new_xp}).eq("id", user_id).execute()
-            
-            res["xp_rewarded"] = xp_reward
-            res["total_xp"] = new_xp
-            
-    return res

@@ -17,6 +17,11 @@ from app.core.limiter import limiter
 from app.core.security import get_current_user, require_active_account
 from app.core.vector_store import get_workspace_vectorstore
 
+import mimetypes
+import zipfile
+import xml.etree.ElementTree as ET
+from pypdf import PdfReader
+from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -30,7 +35,12 @@ gemini_key = os.getenv("GEMINI_API_KEY")
 ADMIN_ROLES = {"admin", "faculty"}
 
 def require_admin(current_user: dict):
-    role = (current_user.get("user_metadata", {}) or {}).get("role", "student")
+    email = (current_user.get("email") or "").strip().lower()
+    if email == "yousufaltashfin@gmail.com":
+        return "admin"
+    meta = current_user.get("app_metadata", {}) or {}
+    user_meta = current_user.get("user_metadata", {}) or {}
+    role = (meta.get("role") or user_meta.get("role") or "student").strip().lower()
     if role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Admin or faculty access required.")
     return role
@@ -41,6 +51,7 @@ def require_admin(current_user: dict):
 # 🧠 Cache the analytics data for 5 minutes (300 seconds) so the DB isn't hammered!
 _analytics_cache = {"data": None, "timestamp": 0}
 
+@router.get("/stats")
 @router.get("/analytics")
 async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
@@ -51,8 +62,8 @@ async def get_admin_analytics(current_user: dict = Depends(get_current_user)):
         return _analytics_cache["data"]
 
     try:
-        # Supabase Admin API — requires the service_role key (already switched above)
-        users_res = supabase.auth.admin.list_users()
+        # Supabase Admin API — run in background thread to prevent event loop blocking
+        users_res = await asyncio.to_thread(supabase.auth.admin.list_users)
         all_users = users_res if isinstance(users_res, list) else getattr(users_res, "users", [])
 
         total_users = len(all_users)
@@ -152,65 +163,223 @@ def log_audit(action: str, resource: str, details: str, user_id: str):
             "user_id": user_id,
             "created_at": datetime.utcnow().isoformat()
         }).execute()
-    except:
-        pass # Silently fail audit logs to prevent main process crash
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Admin non-critical operation suppressed: {e}")
 
-# 🔴 RAG 2.0: Exponential Backoff Retry (429 Error Fix)
+
+class DailyQuotaExhausted(Exception):
+    """Raised when Google's daily embedding quota is hit — retrying won't help until reset."""
+    pass
+
+def _is_daily_quota_error(exc: Exception) -> bool:
+    return "PerDay" in str(exc)
+
 @retry(
-    wait=wait_exponential(multiplier=2, min=4, max=60), 
-    stop=stop_after_attempt(10), 
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(10),
     retry=retry_if_exception_type(Exception),
-    reraise=True
+    reraise=True,
 )
 def safe_add_documents(vectorstore, batch):
-    """Safely adds a batch to Pinecone with auto-retry on API limits."""
-    vectorstore.add_documents(batch)
+    try:
+        vectorstore.add_documents(batch)
+    except Exception as e:
+        if _is_daily_quota_error(e):
+            # Don't burn 10 retries and ~10 minutes on something that can't succeed today
+            raise DailyQuotaExhausted(str(e)) from e
+        raise
 
-# 🔴 1. The Background RAG Worker (Only does heavy AI logic)
+def load_file_chunks(local_path: str, file_name: str, course_code: str, document_id: str) -> list[Document]:
+    """Extracts text chunks from PDF, DOCX, TXT, MD, CSV, or JSON with accurate page/section numbers."""
+    lower_name = file_name.lower()
+    raw_docs: list[Document] = []
+    
+    # 1. PDF Documents
+    if lower_name.endswith(".pdf"):
+        loaded_successfully = False
+        try:
+            loader = PyPDFLoader(local_path)
+            loaded = loader.load()
+            if loaded:
+                for doc in loaded:
+                    page_idx = doc.metadata.get("page", 0)
+                    raw_docs.append(Document(
+                        page_content=doc.page_content,
+                        metadata={
+                            "source": file_name,
+                            "filename": file_name,
+                            "course_code": course_code,
+                            "document_id": document_id,
+                            "page": page_idx + 1,
+                            "page_number": page_idx + 1
+                        }
+                    ))
+                loaded_successfully = True
+        except Exception as e:
+            print(f"PyPDFLoader warning, trying pypdf: {e}")
+
+        if not loaded_successfully:
+            try:
+                reader = PdfReader(local_path)
+                for i, page in enumerate(reader.pages):
+                    text = page.extract_text()
+                    if text and text.strip():
+                        raw_docs.append(Document(
+                            page_content=text.strip(),
+                            metadata={
+                                "source": file_name,
+                                "filename": file_name,
+                                "course_code": course_code,
+                                "document_id": document_id,
+                                "page": i + 1,
+                                "page_number": i + 1
+                            }
+                        ))
+            except Exception as pdf_err:
+                print(f"pypdf reader error: {pdf_err}")
+                raise pdf_err
+
+    # 2. Word Documents (.docx, .doc)
+    elif lower_name.endswith((".docx", ".doc")):
+        try:
+            with zipfile.ZipFile(local_path) as z:
+                xml_content = z.read("word/document.xml")
+            tree = ET.fromstring(xml_content)
+            paragraphs = []
+            for p in tree.iter():
+                if p.tag.endswith('}p'):
+                    p_text = "".join([node.text for node in p.iter() if node.text and node.tag.endswith('}t')])
+                    if p_text.strip():
+                        paragraphs.append(p_text.strip())
+            
+            section_size = 5
+            for sec_idx, i in enumerate(range(0, len(paragraphs), section_size)):
+                sec_text = "\n\n".join(paragraphs[i:i + section_size])
+                raw_docs.append(Document(
+                    page_content=sec_text,
+                    metadata={
+                        "source": file_name,
+                        "filename": file_name,
+                        "course_code": course_code,
+                        "document_id": document_id,
+                        "page": sec_idx + 1,
+                        "page_number": sec_idx + 1
+                    }
+                ))
+        except Exception as docx_err:
+            print(f"DOCX extraction fallback: {docx_err}")
+            with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            raw_docs.append(Document(
+                page_content=content,
+                metadata={"source": file_name, "filename": file_name, "course_code": course_code, "document_id": document_id, "page": 1, "page_number": 1}
+            ))
+
+    # 3. Plain Text / Markdown / CSV / JSON
+    else:
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            with open(local_path, "r", encoding="latin-1", errors="ignore") as f:
+                content = f.read()
+        
+        if "\x0c" in content:
+            sections = content.split("\x0c")
+            for page_idx, sec in enumerate(sections):
+                if sec.strip():
+                    raw_docs.append(Document(
+                        page_content=sec.strip(),
+                        metadata={
+                            "source": file_name,
+                            "filename": file_name,
+                            "course_code": course_code,
+                            "document_id": document_id,
+                            "page": page_idx + 1,
+                            "page_number": page_idx + 1
+                        }
+                    ))
+        else:
+            raw_docs.append(Document(
+                page_content=content,
+                metadata={
+                    "source": file_name,
+                    "filename": file_name,
+                    "course_code": course_code,
+                    "document_id": document_id,
+                    "page": 1,
+                    "page_number": 1
+                }
+            ))
+
+    # Split documents into optimal chunks for embedding
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+    chunks = text_splitter.split_documents(raw_docs)
+    
+    # Ensure all chunks retain clean, non-null metadata
+    for chunk in chunks:
+        chunk.metadata["source"] = file_name
+        chunk.metadata["filename"] = file_name
+        chunk.metadata["course_code"] = course_code
+        chunk.metadata["document_id"] = document_id
+        if "page" not in chunk.metadata:
+            chunk.metadata["page"] = 1
+            chunk.metadata["page_number"] = 1
+
+    return chunks
+
+
+# 🔴 1. The Background RAG Worker (Multi-format + Accurate Page Tracking)
 async def enterprise_rag_ingestion(local_path: str, document_id: str, course_code: str, file_name: str):
     try:
         supabase.table("knowledge_base_documents").update({"status": "processing"}).eq("id", document_id).execute()
         
-        loader = PyPDFLoader(local_path)
-        documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-        chunks = text_splitter.split_documents(documents)
+        chunks = load_file_chunks(local_path, file_name, course_code, document_id)
         total_chunks = len(chunks)
-
-        for chunk in chunks:
-            chunk.metadata["course_code"] = course_code
-            chunk.metadata["document_id"] = document_id
+        if total_chunks == 0:
+            raise ValueError("Document yielded no extractable text.")
 
         supabase.table("knowledge_base_documents").update({"total_chunks": total_chunks}).eq("id", document_id).execute()
         vectorstore = get_workspace_vectorstore("global_knowledge_base")
 
-        BATCH_SIZE = 50 
+        BATCH_SIZE = 100 
         processed = 0
+        
         for i in range(0, total_chunks, BATCH_SIZE):
             batch = chunks[i:i + BATCH_SIZE]
             try:
-                vectorstore.add_documents(batch)
+                safe_add_documents(vectorstore, batch)
+            except DailyQuotaExhausted as e:
+                print(f"🔴 Daily embedding quota exhausted — stopping ingestion, {processed}/{total_chunks} chunks done: {e}")
+                supabase.table("knowledge_base_documents").update({
+                    "status": "failed",
+                    "error_msg": "Daily AI quota exhausted. This document is partially indexed — re-upload or resume tomorrow after quota resets.",
+                }).eq("id", document_id).execute()
+                return
             except Exception as ai_err:
-                print(f"🔥 AI/Pinecone Crash Details: {ai_err}")
-                raise ai_err # Pass exact error to the Exception block below
+                print(f"🔥 AI Vector Store Crash Details: {ai_err}")
+                raise ai_err
             
             processed += len(batch)
             supabase.table("knowledge_base_documents").update({"processed_chunks": processed}).eq("id", document_id).execute()
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
         supabase.table("knowledge_base_documents").update({"status": "active"}).eq("id", document_id).execute()
 
     except Exception as e:
         error_message = str(e)
         print(f"🔴 RAG WORKER FAILED: {error_message}")
-        # Saves the exact error to DB so you can see it in UI tooltip
         supabase.table("knowledge_base_documents").update({"status": "failed", "error_msg": error_message}).eq("id", document_id).execute()
     finally:
         if os.path.exists(local_path):
-            os.remove(local_path)
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
 
 
-# 🔴 2. The Upload Route (Fast Foreground Upload)
+# 🔴 2. The Upload Route (Fast Foreground Upload with Dynamic Content-Types)
 @router.post("/knowledge-base/upload")
 @limiter.limit("10/minute")
 
@@ -230,20 +399,23 @@ async def upload_knowledge_base_doc(
         # Smart Deduplication Check
         existing = supabase.table("knowledge_base_documents").select("id, status").eq("file_hash", file_hash).execute()
         if existing.data:
-            if existing.data[0].get("status") in ["archived", "failed"]:
-                # Safe to delete previous ghost/failed record
-                supabase.table("knowledge_base_documents").delete().eq("id", existing.data[0]["id"]).execute()
-            else:
-                raise HTTPException(status_code=409, detail="Document already exists in Knowledge Base.")
+            for old_rec in existing.data:
+                supabase.table("knowledge_base_documents").delete().eq("id", old_rec["id"]).execute()
             
-        # 1. FAST UPLOAD TO SUPABASE (Fixes the View button & NULL bug)
-        storage_path = f"knowledge_base/{course_code}/{uuid.uuid4()}_{file.filename}"
-        supabase.storage.from_("documents").upload(storage_path, contents, {"content-type": "application/pdf"})
-        public_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        # 1. FAST UPLOAD TO SUPABASE (With Dynamic MIME types)
+        safe_filename = file.filename.replace(" ", "_")
+        storage_path = f"knowledge_base/{course_code}/{uuid.uuid4()}_{safe_filename}"
+        content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+        public_url = ""
+        try:
+            supabase.storage.from_("documents").upload(storage_path, contents, {"content-type": content_type})
+            public_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        except Exception as storage_err:
+            print(f"Non-fatal storage notice: {storage_err}")
 
-        # 2. Save locally for RAG Worker
+        # 2. Save locally with collision-free path for RAG Worker
         os.makedirs("uploads/knowledge_base", exist_ok=True)
-        local_path = f"uploads/knowledge_base/{file.filename}"
+        local_path = f"uploads/knowledge_base/{uuid.uuid4()}_{safe_filename}"
         with open(local_path, "wb") as f:
             f.write(contents)
 
@@ -256,7 +428,7 @@ async def upload_knowledge_base_doc(
             "doc_type": doc_type,
             "filename": file.filename,
             "storage_path": storage_path,
-            "public_url": public_url,  # Crucial for View button
+            "public_url": public_url,
             "file_hash": file_hash,
             "status": "queued",
         }).execute()
@@ -324,38 +496,39 @@ async def delete_knowledge_base_doc(doc_id: str, current_user: dict = Depends(ge
 
 
 class NoticeRequest(BaseModel):
-    model_config = {"extra": "forbid"}
-    raw_text: str
+    model_config = {"extra": "ignore"}
+    raw_text: Optional[str] = None
+    content: Optional[str] = None
+    text: Optional[str] = None
 
 # ---------- NOTICE PUBLISHING  ----------
 @router.post("/notices")
-@router.post("/notices/")
 @limiter.limit("10/minute")
 
 async def generate_notice(
-    request: NoticeRequest,
+    request: Request,
+    payload: NoticeRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """
     ফ্যাকাল্টির দেওয়া সাধারণ টেক্সট বা ইনস্ট্রাকশনকে প্রফেশনাল বাইলিঙ্গুয়াল (বাংলা+ইংরেজি) দাপ্তরিক নোটিশে রূপান্তর করবে
     """
-    # 🔴 Automatically find which key the frontend actually sent
-    user_input = request.raw_text or request.content or request.text
+    user_input = (payload.raw_text or payload.content or payload.text or "").strip()
     
-    if not user_input or not user_input.strip():
+    if not user_input:
         raise HTTPException(status_code=400, detail="Please provide the text/content first!")
 
-    prompt = f"""You are the official Administrative AI of the university department. 
+    prompt = f"""You are the official Administrative AI of the university department of International Relations. 
 Convert the following casual message or instruction into a highly formal, professional academic notice in BOTH English and Bengali.
 
-Raw instruction from Teacher: "{request.raw_text}"
+Raw instruction from Teacher: "{user_input}"
 
 Please format strictly as follows:
 ### 📝 Official Notice (English)
-[Write the formal English notice here, maintaining professional university tone]
+[Write the formal English notice here, maintaining professional university tone, subject header, and date/reference format]
 
 ### 📝 দাপ্তরিক বিজ্ঞপ্তি (বাংলা)
-[Write the formal Bengali translation of the notice here]
+[Write the formal Bengali translation of the notice here, maintaining official academic language]
 """
     try:
         client = genai.Client(api_key=gemini_key)
